@@ -23,6 +23,72 @@ var (
 	BuildTime = "unknown"
 )
 
+// mediaProcessorAdapter adapts media.Processor to jobs.MediaProcessorInterface
+type mediaProcessorAdapter struct {
+	processor *media.Processor
+}
+
+func (a *mediaProcessorAdapter) Process(ctx context.Context, opts jobs.MediaProcessOptions) error {
+	// Convert jobs.Operation to media.Operation
+	operations := make([]media.Operation, len(opts.Operations))
+	for i, op := range opts.Operations {
+		operations[i] = media.Operation{
+			Type:   op.Type,
+			Params: op.Params,
+		}
+	}
+
+	return a.processor.Process(ctx, media.ProcessOptions{
+		InputPath:  opts.InputPath,
+		OutputPath: opts.OutputPath,
+		Operations: operations,
+		OnProgress: opts.OnProgress,
+	})
+}
+
+// documentProcessorAdapter adapts document.Processor to jobs.DocumentProcessorInterface
+type documentProcessorAdapter struct {
+	processor *document.Processor
+}
+
+func (a *documentProcessorAdapter) Process(ctx context.Context, opts jobs.DocumentProcessOptions) error {
+	// Build conversion options from the generic map
+	convOpts := document.ConversionOptions{
+		TargetFormat: opts.ToFormat,
+	}
+
+	// Map options if provided
+	if opts.Options != nil {
+		if metadata, ok := opts.Options["metadata"].(map[string]interface{}); ok {
+			convOpts.Metadata = &document.Metadata{}
+			if title, ok := metadata["title"].(string); ok {
+				convOpts.Metadata.Title = title
+			}
+			if author, ok := metadata["author"].(string); ok {
+				convOpts.Metadata.Author = author
+			}
+		}
+
+		if toc, ok := opts.Options["tableOfContents"].(map[string]interface{}); ok {
+			convOpts.TableOfContents = &document.TOCOptions{}
+			if enabled, ok := toc["enabled"].(bool); ok {
+				convOpts.TableOfContents.Enabled = enabled
+			}
+			if depth, ok := toc["depth"].(float64); ok {
+				convOpts.TableOfContents.Depth = int(depth)
+			}
+		}
+	}
+
+	return a.processor.Process(ctx, document.ProcessOptions{
+		InputPath:  opts.InputPath,
+		OutputPath: opts.OutputPath,
+		FromFormat: opts.FromFormat,
+		ToFormat:   opts.ToFormat,
+		Options:    convOpts,
+	})
+}
+
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
@@ -65,17 +131,21 @@ func main() {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
 
-	// Initialize modules
+	// Initialize processors
 	mediaProcessor := media.NewProcessor(storageService, cfg.FFmpegPath, logger)
 	documentProcessor := document.NewProcessor(storageService, cfg.PandocPath, logger)
+
+	// Create adapters for the job handler interface
+	mediaAdapter := &mediaProcessorAdapter{processor: mediaProcessor}
+	documentAdapter := &documentProcessorAdapter{processor: documentProcessor}
 
 	// Create job handlers
 	jobHandler := jobs.NewHandler(jobs.HandlerConfig{
 		DB:                db,
 		Redis:             redisClient,
 		Storage:           storageService,
-		MediaProcessor:    mediaProcessor,
-		DocumentProcessor: documentProcessor,
+		MediaProcessor:    mediaAdapter,
+		DocumentProcessor: documentAdapter,
 		Logger:            logger,
 	})
 

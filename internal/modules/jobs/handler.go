@@ -5,21 +5,46 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/convert-studio/backend/internal/modules/document"
-	"github.com/convert-studio/backend/internal/modules/media"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
 
+// MediaProcessorInterface defines the interface for media processing
+type MediaProcessorInterface interface {
+	Process(ctx context.Context, opts MediaProcessOptions) error
+}
+
+// MediaProcessOptions mirrors media.ProcessOptions to avoid import
+type MediaProcessOptions struct {
+	InputPath  string
+	OutputPath string
+	Operations []Operation
+	OnProgress func(percent int, operation string)
+}
+
+// DocumentProcessorInterface defines the interface for document processing
+type DocumentProcessorInterface interface {
+	Process(ctx context.Context, opts DocumentProcessOptions) error
+}
+
+// DocumentProcessOptions mirrors document.ProcessOptions to avoid import
+type DocumentProcessOptions struct {
+	InputPath  string
+	OutputPath string
+	FromFormat string
+	ToFormat   string
+	Options    map[string]interface{}
+}
+
 // HandlerConfig contains dependencies for the job handler
 type HandlerConfig struct {
 	DB                *database.Postgres
 	Redis             *database.Redis
 	Storage           *storage.Service
-	MediaProcessor    *media.Processor
-	DocumentProcessor *document.Processor
+	MediaProcessor    MediaProcessorInterface
+	DocumentProcessor DocumentProcessorInterface
 	Logger            *zap.Logger
 }
 
@@ -28,8 +53,8 @@ type Handler struct {
 	db                *database.Postgres
 	redis             *database.Redis
 	storage           *storage.Service
-	mediaProcessor    *media.Processor
-	documentProcessor *document.Processor
+	mediaProcessor    MediaProcessorInterface
+	documentProcessor DocumentProcessorInterface
 	logger            *zap.Logger
 }
 
@@ -57,20 +82,11 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		zap.String("input", payload.InputPath),
 	)
 
-	// Convert operations
-	operations := make([]media.Operation, len(payload.Operations))
-	for i, op := range payload.Operations {
-		operations[i] = media.Operation{
-			Type:   op.Type,
-			Params: op.Params,
-		}
-	}
-
 	// Execute media processing
-	err := h.mediaProcessor.Process(ctx, media.ProcessOptions{
+	err := h.mediaProcessor.Process(ctx, MediaProcessOptions{
 		InputPath:  payload.InputPath,
 		OutputPath: payload.OutputPath,
-		Operations: operations,
+		Operations: payload.Operations,
 		OnProgress: func(percent int, operation string) {
 			// Update progress via Redis pub/sub
 			h.logger.Debug("Media processing progress",
@@ -110,41 +126,13 @@ func (h *Handler) HandleDocumentConvert(ctx context.Context, task *asynq.Task) e
 		zap.String("to", payload.ToFormat),
 	)
 
-	// Build conversion options
-	options := document.ConversionOptions{
-		TargetFormat: payload.ToFormat,
-	}
-
-	// Map options from payload
-	if payload.Options != nil {
-		if metadata, ok := payload.Options["metadata"].(map[string]interface{}); ok {
-			options.Metadata = &document.Metadata{}
-			if title, ok := metadata["title"].(string); ok {
-				options.Metadata.Title = title
-			}
-			if author, ok := metadata["author"].(string); ok {
-				options.Metadata.Author = author
-			}
-		}
-
-		if toc, ok := payload.Options["tableOfContents"].(map[string]interface{}); ok {
-			options.TableOfContents = &document.TOCOptions{}
-			if enabled, ok := toc["enabled"].(bool); ok {
-				options.TableOfContents.Enabled = enabled
-			}
-			if depth, ok := toc["depth"].(float64); ok {
-				options.TableOfContents.Depth = int(depth)
-			}
-		}
-	}
-
 	// Execute document conversion
-	err := h.documentProcessor.Process(ctx, document.ProcessOptions{
+	err := h.documentProcessor.Process(ctx, DocumentProcessOptions{
 		InputPath:  payload.InputPath,
 		OutputPath: payload.OutputPath,
 		FromFormat: payload.FromFormat,
 		ToFormat:   payload.ToFormat,
-		Options:    options,
+		Options:    payload.Options,
 	})
 
 	if err != nil {

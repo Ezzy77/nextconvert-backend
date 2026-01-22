@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: convert-studio-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: convert_studio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - convert-studio-net
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: convert-studio-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - convert-studio-net
+
+  # API Server
+  server:
+    build:
+      context: .
+      target: server
+    container_name: convert-studio-server
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable
+      - REDIS_URL=redis:6379
+      - STORAGE_BACKEND=local
+      - STORAGE_BASE_PATH=/app/data
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+      - PANDOC_PATH=/usr/bin/pandoc
+      - JWT_SECRET=change-me-in-production
+      - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+      - LOG_LEVEL=debug
+    volumes:
+      - app_data:/app/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - convert-studio-net
+
+  # Worker
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: convert-studio-worker
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable
+      - REDIS_URL=redis:6379
+      - STORAGE_BACKEND=local
+      - STORAGE_BASE_PATH=/app/data
+      - FFMPEG_PATH=/usr/bin/ffmpeg
+      - PANDOC_PATH=/usr/bin/pandoc
+      - WORKER_CONCURRENCY=2
+      - LOG_LEVEL=debug
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - convert-studio-net
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  postgres_data:
+  redis_data:
+  app_data:
+
+networks:
+  convert-studio-net:
+    driver: bridge

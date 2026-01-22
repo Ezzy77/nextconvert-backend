@@ -1,0 +1,272 @@
+package media
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/convert-studio/backend/internal/modules/jobs"
+	"github.com/convert-studio/backend/internal/shared/storage"
+	"go.uber.org/zap"
+)
+
+// Module handles media operations
+type Module struct {
+	storage  *storage.Service
+	jobQueue *jobs.QueueClient
+	logger   *zap.Logger
+	presets  map[string]Preset
+}
+
+// Operation represents a media operation
+type Operation struct {
+	Type   string                 `json:"type"`
+	Params map[string]interface{} `json:"params"`
+}
+
+// MediaInfo contains metadata about a media file
+type MediaInfo struct {
+	Format     string        `json:"format"`
+	Duration   float64       `json:"duration"`
+	Size       int64         `json:"size"`
+	BitRate    int           `json:"bitRate"`
+	VideoCodec string        `json:"videoCodec,omitempty"`
+	AudioCodec string        `json:"audioCodec,omitempty"`
+	Width      int           `json:"width,omitempty"`
+	Height     int           `json:"height,omitempty"`
+	FrameRate  float64       `json:"frameRate,omitempty"`
+	Streams    []StreamInfo  `json:"streams"`
+}
+
+// StreamInfo contains information about a media stream
+type StreamInfo struct {
+	Index     int    `json:"index"`
+	Type      string `json:"type"`
+	Codec     string `json:"codec"`
+	BitRate   int    `json:"bitRate,omitempty"`
+	Channels  int    `json:"channels,omitempty"`
+	SampleRate int   `json:"sampleRate,omitempty"`
+}
+
+// Preset represents a predefined operation set
+type Preset struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	Description string      `json:"description"`
+	Operations  []Operation `json:"operations"`
+	Icon        string      `json:"icon,omitempty"`
+}
+
+// ValidationResult contains operation validation results
+type ValidationResult struct {
+	Valid    bool     `json:"valid"`
+	Errors   []string `json:"errors,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// FormatInfo describes a supported format
+type FormatInfo struct {
+	Name       string   `json:"name"`
+	Extension  string   `json:"extension"`
+	MimeTypes  []string `json:"mimeTypes"`
+	Type       string   `json:"type"` // video, audio, image
+	Encodable  bool     `json:"encodable"`
+	Decodable  bool     `json:"decodable"`
+}
+
+// CodecInfo describes an available codec
+type CodecInfo struct {
+	Name        string `json:"name"`
+	LongName    string `json:"longName"`
+	Type        string `json:"type"` // video, audio
+	Encoding    bool   `json:"encoding"`
+	Decoding    bool   `json:"decoding"`
+}
+
+// NewModule creates a new media module
+func NewModule(storage *storage.Service, jobQueue *jobs.QueueClient, logger *zap.Logger) *Module {
+	m := &Module{
+		storage:  storage,
+		jobQueue: jobQueue,
+		logger:   logger,
+		presets:  make(map[string]Preset),
+	}
+
+	m.initPresets()
+	return m
+}
+
+func (m *Module) initPresets() {
+	// Mobile optimized preset
+	m.presets["mobile"] = Preset{
+		ID:          "mobile",
+		Name:        "Mobile Optimized",
+		Type:        "video",
+		Description: "Optimized for mobile devices (720p, H.264)",
+		Icon:        "📱",
+		Operations: []Operation{
+			{Type: "resize", Params: map[string]interface{}{"width": 1280, "height": 720, "maintainAspect": true}},
+			{Type: "compress", Params: map[string]interface{}{"quality": 70}},
+			{Type: "convertFormat", Params: map[string]interface{}{"targetFormat": "mp4", "codec": "h264"}},
+		},
+	}
+
+	// Web optimized preset
+	m.presets["web"] = Preset{
+		ID:          "web",
+		Name:        "Web Optimized",
+		Type:        "video",
+		Description: "Optimized for web streaming (1080p, WebM)",
+		Icon:        "🌐",
+		Operations: []Operation{
+			{Type: "resize", Params: map[string]interface{}{"width": 1920, "height": 1080, "maintainAspect": true}},
+			{Type: "compress", Params: map[string]interface{}{"quality": 80}},
+			{Type: "convertFormat", Params: map[string]interface{}{"targetFormat": "webm", "codec": "vp9"}},
+		},
+	}
+
+	// Email attachment preset
+	m.presets["email"] = Preset{
+		ID:          "email",
+		Name:        "Email Attachment",
+		Type:        "video",
+		Description: "Small file size for email (<25MB target)",
+		Icon:        "📧",
+		Operations: []Operation{
+			{Type: "resize", Params: map[string]interface{}{"width": 640, "height": 480, "maintainAspect": true}},
+			{Type: "compress", Params: map[string]interface{}{"targetSize": 25000000}},
+			{Type: "convertFormat", Params: map[string]interface{}{"targetFormat": "mp4", "codec": "h264"}},
+		},
+	}
+
+	// Audio podcast preset
+	m.presets["podcast"] = Preset{
+		ID:          "podcast",
+		Name:        "Podcast Audio",
+		Type:        "audio",
+		Description: "Optimized for podcast distribution (MP3, 128kbps)",
+		Icon:        "🎙️",
+		Operations: []Operation{
+			{Type: "convertFormat", Params: map[string]interface{}{"targetFormat": "mp3"}},
+			{Type: "changeBitrate", Params: map[string]interface{}{"bitrate": 128000}},
+		},
+	}
+
+	// GIF creation preset
+	m.presets["gif"] = Preset{
+		ID:          "gif",
+		Name:        "Create GIF",
+		Type:        "video",
+		Description: "Convert video clip to animated GIF",
+		Icon:        "🎬",
+		Operations: []Operation{
+			{Type: "createGif", Params: map[string]interface{}{"fps": 10, "width": 480}},
+		},
+	}
+}
+
+// Probe extracts metadata from a media file
+func (m *Module) Probe(ctx context.Context, fileID string) (*MediaInfo, error) {
+	// TODO: Implement actual ffprobe call
+	// For now, return mock data
+	return &MediaInfo{
+		Format:     "mp4",
+		Duration:   120.5,
+		Size:       50000000,
+		BitRate:    3333000,
+		VideoCodec: "h264",
+		AudioCodec: "aac",
+		Width:      1920,
+		Height:     1080,
+		FrameRate:  30,
+		Streams: []StreamInfo{
+			{Index: 0, Type: "video", Codec: "h264", BitRate: 3000000},
+			{Index: 1, Type: "audio", Codec: "aac", BitRate: 128000, Channels: 2, SampleRate: 48000},
+		},
+	}, nil
+}
+
+// GetPresets returns all presets
+func (m *Module) GetPresets() []Preset {
+	presets := make([]Preset, 0, len(m.presets))
+	for _, p := range m.presets {
+		presets = append(presets, p)
+	}
+	return presets
+}
+
+// GetPreset returns a specific preset
+func (m *Module) GetPreset(id string) (*Preset, error) {
+	preset, ok := m.presets[id]
+	if !ok {
+		return nil, fmt.Errorf("preset not found: %s", id)
+	}
+	return &preset, nil
+}
+
+// ValidateOperations validates a chain of operations
+func (m *Module) ValidateOperations(operations []Operation, inputType string) ValidationResult {
+	result := ValidationResult{Valid: true}
+
+	for _, op := range operations {
+		switch op.Type {
+		case "trim", "resize", "compress", "convertFormat", "rotate", "crop",
+			"addWatermark", "addSubtitles", "extractAudio", "changeSpeed", "createGif":
+			// Valid video operations
+			if inputType != "video" && inputType != "" {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Operation '%s' is intended for video", op.Type))
+			}
+		case "changeBitrate", "adjustVolume", "fadeInOut", "merge", "removeSilence":
+			// Valid audio operations
+			if inputType != "audio" && inputType != "" {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("Operation '%s' is intended for audio", op.Type))
+			}
+		default:
+			result.Valid = false
+			result.Errors = append(result.Errors, fmt.Sprintf("Unknown operation: %s", op.Type))
+		}
+	}
+
+	return result
+}
+
+// GetSupportedFormats returns supported media formats
+func (m *Module) GetSupportedFormats() map[string][]FormatInfo {
+	return map[string][]FormatInfo{
+		"video": {
+			{Name: "MP4", Extension: "mp4", MimeTypes: []string{"video/mp4"}, Type: "video", Encodable: true, Decodable: true},
+			{Name: "WebM", Extension: "webm", MimeTypes: []string{"video/webm"}, Type: "video", Encodable: true, Decodable: true},
+			{Name: "MOV", Extension: "mov", MimeTypes: []string{"video/quicktime"}, Type: "video", Encodable: true, Decodable: true},
+			{Name: "AVI", Extension: "avi", MimeTypes: []string{"video/x-msvideo"}, Type: "video", Encodable: true, Decodable: true},
+			{Name: "MKV", Extension: "mkv", MimeTypes: []string{"video/x-matroska"}, Type: "video", Encodable: true, Decodable: true},
+			{Name: "GIF", Extension: "gif", MimeTypes: []string{"image/gif"}, Type: "video", Encodable: true, Decodable: true},
+		},
+		"audio": {
+			{Name: "MP3", Extension: "mp3", MimeTypes: []string{"audio/mpeg"}, Type: "audio", Encodable: true, Decodable: true},
+			{Name: "WAV", Extension: "wav", MimeTypes: []string{"audio/wav"}, Type: "audio", Encodable: true, Decodable: true},
+			{Name: "AAC", Extension: "aac", MimeTypes: []string{"audio/aac"}, Type: "audio", Encodable: true, Decodable: true},
+			{Name: "FLAC", Extension: "flac", MimeTypes: []string{"audio/flac"}, Type: "audio", Encodable: true, Decodable: true},
+			{Name: "OGG", Extension: "ogg", MimeTypes: []string{"audio/ogg"}, Type: "audio", Encodable: true, Decodable: true},
+		},
+	}
+}
+
+// GetAvailableCodecs returns available codecs
+func (m *Module) GetAvailableCodecs() map[string][]CodecInfo {
+	return map[string][]CodecInfo{
+		"video": {
+			{Name: "h264", LongName: "H.264 / AVC", Type: "video", Encoding: true, Decoding: true},
+			{Name: "h265", LongName: "H.265 / HEVC", Type: "video", Encoding: true, Decoding: true},
+			{Name: "vp8", LongName: "VP8", Type: "video", Encoding: true, Decoding: true},
+			{Name: "vp9", LongName: "VP9", Type: "video", Encoding: true, Decoding: true},
+			{Name: "av1", LongName: "AV1", Type: "video", Encoding: true, Decoding: true},
+		},
+		"audio": {
+			{Name: "aac", LongName: "AAC (Advanced Audio Coding)", Type: "audio", Encoding: true, Decoding: true},
+			{Name: "mp3", LongName: "MP3 (MPEG Audio Layer III)", Type: "audio", Encoding: true, Decoding: true},
+			{Name: "opus", LongName: "Opus", Type: "audio", Encoding: true, Decoding: true},
+			{Name: "flac", LongName: "FLAC (Free Lossless Audio Codec)", Type: "audio", Encoding: true, Decoding: true},
+			{Name: "vorbis", LongName: "Vorbis", Type: "audio", Encoding: true, Decoding: true},
+		},
+	}
+}

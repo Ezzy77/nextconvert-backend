@@ -150,6 +150,23 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 		}
 	}
 
+	// Resolve file references in operation params (e.g., audioPath for addAudio)
+	for i, op := range params.Operations {
+		if op.Type == "addAudio" {
+			if audioFileID, ok := op.Params["audioPath"].(string); ok && audioFileID != "" {
+				var audioStoragePath string
+				err := m.db.Pool.QueryRow(ctx, `
+					SELECT storage_path FROM files WHERE id = $1
+				`, audioFileID).Scan(&audioStoragePath)
+				if err != nil {
+					return nil, fmt.Errorf("audio file not found: %w", err)
+				}
+				// Update the operation params with resolved path
+				params.Operations[i].Params["audioPath"] = audioStoragePath
+			}
+		}
+	}
+
 	jobID := uuid.New().String()
 	now := time.Now()
 

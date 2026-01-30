@@ -548,6 +548,156 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			// Split is handled separately in processSplit method
 			// This case is here to avoid "unknown operation" errors
 			// The actual split logic extracts segments at specific times
+
+		case "thumbnail":
+			// Thumbnail generation - extract frame(s) as image(s)
+			// This is handled specially since output is image not video
+			timestamp := getStringParam(op.Params, "timestamp", "00:00:01")
+			width := getIntParam(op.Params, "width", 320)
+
+			// For thumbnail, we override the entire args since it's different
+			args = []string{"-ss", timestamp, "-i", opts.InputPath}
+			args = append(args, "-vframes", "1")
+			args = append(args, "-vf", fmt.Sprintf("scale=%d:-1", width))
+			args = append(args, "-q:v", "2") // High quality JPEG
+			args = append(args, opts.OutputPath)
+			return args // Return early for thumbnail
+
+		case "addAudio":
+			// Add/replace audio track
+			// This requires a second input file (audio)
+			audioPath := getStringParam(op.Params, "audioPath", "")
+			mode := getStringParam(op.Params, "mode", "mix") // mix, replace
+			volume := getFloatParam(op.Params, "volume", 1.0)
+
+			if audioPath != "" {
+				// We need to handle this differently with filter_complex
+				// This will be processed specially
+				if mode == "replace" {
+					// Remove original audio, use new audio
+					args = []string{"-i", opts.InputPath, "-i", audioPath}
+					args = append(args, "-map", "0:v", "-map", "1:a")
+					args = append(args, "-c:v", "copy")
+					if volume != 1.0 {
+						args = append(args, "-af", fmt.Sprintf("volume=%.2f", volume))
+					}
+					args = append(args, "-shortest")
+					args = append(args, opts.OutputPath)
+					return args
+				} else {
+					// Mix both audio tracks
+					args = []string{"-i", opts.InputPath, "-i", audioPath}
+					volumeFilter := ""
+					if volume != 1.0 {
+						volumeFilter = fmt.Sprintf(",volume=%.2f", volume)
+					}
+					args = append(args, "-filter_complex", fmt.Sprintf("[0:a][1:a]amix=inputs=2:duration=first%s[aout]", volumeFilter))
+					args = append(args, "-map", "0:v", "-map", "[aout]")
+					args = append(args, "-c:v", "copy")
+					args = append(args, opts.OutputPath)
+					return args
+				}
+			}
+
+		case "addText":
+			// Add text overlay (similar to watermark but with more options)
+			text := getStringParam(op.Params, "text", "")
+			if text != "" {
+				position := getStringParam(op.Params, "position", "center")
+				fontSize := getIntParam(op.Params, "fontSize", 48)
+				fontColor := getStringParam(op.Params, "fontColor", "white")
+				bgColor := getStringParam(op.Params, "bgColor", "")
+				bgOpacity := getFloatParam(op.Params, "bgOpacity", 0.5)
+				startTime := getFloatParam(op.Params, "startTime", 0)
+				endTime := getFloatParam(op.Params, "endTime", 0) // 0 means entire video
+				animation := getStringParam(op.Params, "animation", "none")
+
+				// Map position to coordinates
+				var x, y string
+				switch position {
+				case "topleft":
+					x, y = "20", "20"
+				case "topcenter":
+					x, y = "(w-tw)/2", "20"
+				case "topright":
+					x, y = "w-tw-20", "20"
+				case "centerleft":
+					x, y = "20", "(h-th)/2"
+				case "center":
+					x, y = "(w-tw)/2", "(h-th)/2"
+				case "centerright":
+					x, y = "w-tw-20", "(h-th)/2"
+				case "bottomleft":
+					x, y = "20", "h-th-20"
+				case "bottomcenter":
+					x, y = "(w-tw)/2", "h-th-20"
+				case "bottomright":
+					x, y = "w-tw-20", "h-th-20"
+				default:
+					x, y = "(w-tw)/2", "(h-th)/2"
+				}
+
+				// Apply animation to position
+				switch animation {
+				case "scrollLeft":
+					x = fmt.Sprintf("w-%d*t", fontSize*2) // Scroll from right to left
+				case "scrollRight":
+					x = fmt.Sprintf("-%d+%d*t", fontSize*5, fontSize*2) // Scroll from left to right
+				case "scrollUp":
+					y = fmt.Sprintf("h-%d*t", fontSize) // Scroll from bottom to top
+				case "scrollDown":
+					y = fmt.Sprintf("-%d+%d*t", fontSize*2, fontSize) // Scroll from top to bottom
+				case "fadeIn":
+					// Fade handled via alpha
+				}
+
+				// Escape special characters
+				escapedText := text
+				escapedText = strings.ReplaceAll(escapedText, "\\", "\\\\")
+				escapedText = strings.ReplaceAll(escapedText, "'", "'\\''")
+				escapedText = strings.ReplaceAll(escapedText, ":", "\\:")
+
+				// Build filter
+				filter := fmt.Sprintf(
+					"drawtext=text='%s':fontfile=/usr/share/fonts/ttf-dejavu/DejaVuSans-Bold.ttf:fontsize=%d:fontcolor=%s:x=%s:y=%s",
+					escapedText, fontSize, fontColor, x, y,
+				)
+
+				// Add background box if specified
+				if bgColor != "" {
+					filter += fmt.Sprintf(":box=1:boxcolor=%s@%.2f:boxborderw=10", bgColor, bgOpacity)
+				}
+
+				// Add time constraints
+				if startTime > 0 || endTime > 0 {
+					if endTime > 0 {
+						filter += fmt.Sprintf(":enable='between(t,%.2f,%.2f)'", startTime, endTime)
+					} else {
+						filter += fmt.Sprintf(":enable='gte(t,%.2f)'", startTime)
+					}
+				}
+
+				// Add fade animation
+				if animation == "fadeIn" {
+					filter += ":alpha='if(lt(t,1),t,1)'"
+				}
+
+				videoFilters = append(videoFilters, filter)
+			}
+
+		case "removeAudio":
+			// Strip audio track from video
+			args = append(args, "-an")
+
+		case "reverse":
+			// Reverse video playback
+			videoFilters = append(videoFilters, "reverse")
+			audioFilters = append(audioFilters, "areverse")
+
+		case "loop":
+			// Loop video N times
+			loopCount := getIntParam(op.Params, "count", 2)
+			args = append(args, "-stream_loop", fmt.Sprintf("%d", loopCount-1))
 		}
 	}
 

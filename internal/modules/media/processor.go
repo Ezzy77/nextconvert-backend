@@ -337,6 +337,10 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 
 		case "rotate":
 			degrees := getIntParam(op.Params, "degrees", 0)
+			flipH := getBoolParam(op.Params, "flipHorizontal", false)
+			flipV := getBoolParam(op.Params, "flipVertical", false)
+
+			// Apply rotation
 			switch degrees {
 			case 90:
 				videoFilters = append(videoFilters, "transpose=1")
@@ -344,6 +348,14 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 				videoFilters = append(videoFilters, "transpose=1,transpose=1")
 			case 270:
 				videoFilters = append(videoFilters, "transpose=2")
+			}
+
+			// Apply flips
+			if flipH {
+				videoFilters = append(videoFilters, "hflip")
+			}
+			if flipV {
+				videoFilters = append(videoFilters, "vflip")
 			}
 
 		case "crop":
@@ -356,14 +368,30 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			}
 
 		case "extractAudio":
-			args = append(args, "-vn")
-			if format, ok := op.Params["format"].(string); ok {
-				switch format {
-				case "mp3":
-					args = append(args, "-acodec", "libmp3lame")
-				case "aac":
-					args = append(args, "-acodec", "aac")
-				}
+			args = append(args, "-vn") // Remove video stream
+			format := getStringParam(op.Params, "format", "mp3")
+			bitrate := getIntParam(op.Params, "bitrate", 192000)
+
+			switch format {
+			case "mp3":
+				args = append(args, "-acodec", "libmp3lame")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			case "aac":
+				args = append(args, "-acodec", "aac")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			case "wav":
+				args = append(args, "-acodec", "pcm_s16le")
+				// WAV doesn't use bitrate compression
+			case "flac":
+				args = append(args, "-acodec", "flac")
+				// FLAC is lossless, compression level instead of bitrate
+				args = append(args, "-compression_level", "5")
+			case "ogg":
+				args = append(args, "-acodec", "libvorbis")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			default:
+				args = append(args, "-acodec", "libmp3lame")
+				args = append(args, "-b:a", "192k")
 			}
 
 		case "changeSpeed":

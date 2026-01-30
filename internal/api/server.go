@@ -82,6 +82,7 @@ func (s *Server) Router() *chi.Mux {
 	fileHandler := handlers.NewFileHandler(s.storage, s.db, s.logger)
 	mediaHandler := handlers.NewMediaHandler(s.mediaModule, s.logger)
 	jobHandler := handlers.NewJobHandler(s.jobsModule, s.logger)
+	presetsHandler := handlers.NewPresetsHandler(s.db, s.logger)
 	wsHandler := handlers.NewWebSocketHandler(s.wsHub, s.logger)
 
 	// API routes
@@ -100,6 +101,7 @@ func (s *Server) Router() *chi.Mux {
 				r.Post("/upload/simple", fileHandler.SimpleUpload)
 				r.Post("/upload/chunk", fileHandler.UploadChunk)
 				r.Post("/upload/complete", fileHandler.CompleteUpload)
+				r.Get("/", fileHandler.ListFiles)
 				r.Get("/{id}", fileHandler.GetFile)
 				r.Get("/{id}/download", fileHandler.DownloadFile)
 				r.Get("/{id}/thumbnail", fileHandler.GetThumbnail)
@@ -114,6 +116,13 @@ func (s *Server) Router() *chi.Mux {
 				r.Post("/validate", mediaHandler.ValidateOperations)
 				r.Get("/formats", mediaHandler.GetFormats)
 				r.Get("/codecs", mediaHandler.GetCodecs)
+			})
+
+			// User presets
+			r.Route("/presets", func(r chi.Router) {
+				r.Get("/", presetsHandler.ListPresets)
+				r.Post("/", presetsHandler.CreatePreset)
+				r.Delete("/{id}", presetsHandler.DeletePreset)
 			})
 
 			// Job management

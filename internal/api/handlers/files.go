@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/convert-studio/backend/internal/api/middleware"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
 	"github.com/go-chi/chi/v5"
@@ -351,7 +352,67 @@ func (h *FileHandler) GetThumbnail(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "thumbnail not available", http.StatusNotFound)
 }
 
-// DeleteFile removes a file
+// ListFiles returns the user's uploaded files
+func (h *FileHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r.Context())
+	userID := "anonymous"
+	if user != nil {
+		userID = user.ID
+	}
+
+	zone := r.URL.Query().Get("zone")
+	if zone == "" {
+		zone = "upload"
+	}
+
+	// Authenticated: only own files. Anonymous: files with no user
+	rows, err := h.db.Pool.Query(r.Context(), `
+		SELECT id, original_name, storage_path, mime_type, size_bytes, zone, media_type, created_at
+		FROM files
+		WHERE (user_id = $1 OR ($1 = 'anonymous' AND user_id IS NULL)) AND zone = $2
+		ORDER BY created_at DESC
+		LIMIT 200
+	`, userID, zone)
+	if err != nil {
+		h.logger.Error("Failed to list files", zap.Error(err))
+		http.Error(w, "failed to list files", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var files []map[string]interface{}
+	for rows.Next() {
+		var id, originalName, storagePath, mimeType, fileZone string
+		var sizeBytes int64
+		var mediaType *string
+		var createdAt time.Time
+
+		if err := rows.Scan(&id, &originalName, &storagePath, &mimeType, &sizeBytes, &fileZone, &mediaType, &createdAt); err != nil {
+			h.logger.Error("Failed to scan file", zap.Error(err))
+			continue
+		}
+
+		mt := ""
+		if mediaType != nil {
+			mt = *mediaType
+		}
+
+		files = append(files, map[string]interface{}{
+			"id":        id,
+			"name":      originalName,
+			"size":      sizeBytes,
+			"mimeType":  mimeType,
+			"zone":      fileZone,
+			"mediaType": mt,
+			"createdAt": createdAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(files)
+}
+
+// DeleteFile removes a file (user must own it)
 func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 	fileID := chi.URLParam(r, "id")
 	if fileID == "" {
@@ -363,6 +424,21 @@ func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 	file, err := h.getFileFromDB(r.Context(), fileID)
 	if err != nil {
 		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Check ownership
+	user := middleware.GetUser(r.Context())
+	userID := "anonymous"
+	if user != nil {
+		userID = user.ID
+	}
+	if file.UserID != nil && *file.UserID != userID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if file.UserID == nil && userID != "anonymous" {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -427,8 +503,15 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 		mediaType = &mt
 	}
 
+	// Get user ID for ownership
+	user := middleware.GetUser(r.Context())
+	var userID *string
+	if user != nil && user.ID != "anonymous" {
+		userID = &user.ID
+	}
+
 	// Insert into database
-	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType)
+	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType, userID)
 	if err != nil {
 		h.logger.Error("Failed to insert file into database", zap.Error(err))
 		// Delete the stored file since DB insert failed
@@ -485,14 +568,15 @@ func (h *FileHandler) getFileFromDB(ctx context.Context, fileID string) (*FileRe
 }
 
 // insertFileToDB inserts a new file record into the database
-func (h *FileHandler) insertFileToDB(ctx context.Context, fileInfo *storage.FileInfo, originalName, mimeType string, mediaType *string) (*FileRecord, error) {
+func (h *FileHandler) insertFileToDB(ctx context.Context, fileInfo *storage.FileInfo, originalName, mimeType string, mediaType *string, userID *string) (*FileRecord, error) {
 	var record FileRecord
 	err := h.db.Pool.QueryRow(ctx, `
-		INSERT INTO files (id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		INSERT INTO files (id, user_id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 		RETURNING id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at
 	`,
 		fileInfo.ID,
+		userID,
 		originalName,
 		fileInfo.Path,
 		mimeType,

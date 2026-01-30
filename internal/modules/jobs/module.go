@@ -22,41 +22,28 @@ const (
 	StatusCancelled  = "cancelled"
 )
 
-// Job types
-const (
-	TypeMedia    = "media"
-	TypeDocument = "document"
-)
-
-// Job represents a processing job
+// Job represents a media processing job
 type Job struct {
-	ID             string           `json:"id"`
-	UserID         string           `json:"userId"`
-	Type           string           `json:"type"`
-	Status         string           `json:"status"`
-	Priority       int              `json:"priority"`
-	InputFileID    string           `json:"inputFileId"`
-	OutputFileID   string           `json:"outputFileId,omitempty"`
-	Operations     []Operation      `json:"operations,omitempty"`
-	Conversion     *ConversionConfig `json:"conversion,omitempty"`
-	OutputFileName string           `json:"outputFileName"`
-	Progress       Progress         `json:"progress"`
-	Error          *JobError        `json:"error,omitempty"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	StartedAt      *time.Time       `json:"startedAt,omitempty"`
-	CompletedAt    *time.Time       `json:"completedAt,omitempty"`
+	ID             string     `json:"id"`
+	UserID         string     `json:"userId"`
+	Status         string     `json:"status"`
+	Priority       int        `json:"priority"`
+	InputFileID    string     `json:"inputFileId"`
+	OutputFileID   string     `json:"outputFileId,omitempty"`
+	Operations     []Operation `json:"operations"`
+	OutputFormat   string     `json:"outputFormat"`
+	OutputFileName string     `json:"outputFileName"`
+	Progress       Progress   `json:"progress"`
+	Error          *JobError  `json:"error,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time `json:"completedAt,omitempty"`
 }
 
 // Operation represents a media operation
 type Operation struct {
 	Type   string                 `json:"type"`
 	Params map[string]interface{} `json:"params"`
-}
-
-// ConversionConfig represents document conversion options
-type ConversionConfig struct {
-	TargetFormat string                 `json:"targetFormat"`
-	Options      map[string]interface{} `json:"options,omitempty"`
 }
 
 // Progress represents job progress
@@ -76,10 +63,9 @@ type JobError struct {
 // CreateJobParams contains parameters for creating a job
 type CreateJobParams struct {
 	UserID         string
-	Type           string
 	InputFileID    string
 	Operations     []Operation
-	Conversion     *ConversionConfig
+	OutputFormat   string
 	OutputFileName string
 }
 
@@ -103,17 +89,16 @@ func NewModule(db *database.Postgres, redis *database.Redis, wsHub *websocket.Hu
 	}
 }
 
-// CreateJob creates a new job
+// CreateJob creates a new media processing job
 func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, error) {
 	job := &Job{
 		ID:             uuid.New().String(),
 		UserID:         params.UserID,
-		Type:           params.Type,
 		Status:         StatusPending,
 		Priority:       5, // Default priority
 		InputFileID:    params.InputFileID,
 		Operations:     params.Operations,
-		Conversion:     params.Conversion,
+		OutputFormat:   params.OutputFormat,
 		OutputFileName: params.OutputFileName,
 		Progress:       Progress{Percent: 0},
 		CreatedAt:      time.Now(),
@@ -127,8 +112,8 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 
 	m.logger.Info("Job created",
 		zap.String("job_id", job.ID),
-		zap.String("type", job.Type),
 		zap.String("user_id", job.UserID),
+		zap.Int("operations", len(job.Operations)),
 	)
 
 	return job, nil
@@ -152,9 +137,6 @@ func (m *Module) ListJobs(ctx context.Context, userID, status, jobType string) (
 			continue
 		}
 		if status != "" && job.Status != status {
-			continue
-		}
-		if jobType != "" && job.Type != jobType {
 			continue
 		}
 		jobs = append(jobs, job)
@@ -199,12 +181,11 @@ func (m *Module) RetryJob(ctx context.Context, jobID string) (*Job, error) {
 	newJob := &Job{
 		ID:             uuid.New().String(),
 		UserID:         oldJob.UserID,
-		Type:           oldJob.Type,
 		Status:         StatusPending,
 		Priority:       oldJob.Priority,
 		InputFileID:    oldJob.InputFileID,
 		Operations:     oldJob.Operations,
-		Conversion:     oldJob.Conversion,
+		OutputFormat:   oldJob.OutputFormat,
 		OutputFileName: oldJob.OutputFileName,
 		Progress:       Progress{Percent: 0},
 		CreatedAt:      time.Now(),

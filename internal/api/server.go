@@ -4,7 +4,6 @@ import (
 	"github.com/convert-studio/backend/internal/api/handlers"
 	"github.com/convert-studio/backend/internal/api/middleware"
 	"github.com/convert-studio/backend/internal/api/websocket"
-	"github.com/convert-studio/backend/internal/modules/document"
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
 	"github.com/convert-studio/backend/internal/shared/config"
@@ -18,42 +17,39 @@ import (
 
 // ServerConfig holds dependencies for the API server
 type ServerConfig struct {
-	Config         *config.Config
-	Logger         *zap.Logger
-	DB             *database.Postgres
-	Redis          *database.Redis
-	Storage        *storage.Service
-	WSHub          *websocket.Hub
-	MediaModule    *media.Module
-	DocumentModule *document.Module
-	JobsModule     *jobs.Module
+	Config      *config.Config
+	Logger      *zap.Logger
+	DB          *database.Postgres
+	Redis       *database.Redis
+	Storage     *storage.Service
+	WSHub       *websocket.Hub
+	MediaModule *media.Module
+	JobsModule  *jobs.Module
 }
 
 // Server represents the API server
 type Server struct {
-	config         *config.Config
-	logger         *zap.Logger
-	db             *database.Postgres
-	redis          *database.Redis
-	storage        *storage.Service
-	wsHub          *websocket.Hub
-	mediaModule    *media.Module
-	documentModule *document.Module
-	jobsModule     *jobs.Module
+	config      *config.Config
+	logger      *zap.Logger
+	db          *database.Postgres
+	redis       *database.Redis
+	storage     *storage.Service
+	wsHub       *websocket.Hub
+	mediaModule *media.Module
+	jobsModule  *jobs.Module
 }
 
 // NewServer creates a new API server
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		config:         cfg.Config,
-		logger:         cfg.Logger,
-		db:             cfg.DB,
-		redis:          cfg.Redis,
-		storage:        cfg.Storage,
-		wsHub:          cfg.WSHub,
-		mediaModule:    cfg.MediaModule,
-		documentModule: cfg.DocumentModule,
-		jobsModule:     cfg.JobsModule,
+		config:      cfg.Config,
+		logger:      cfg.Logger,
+		db:          cfg.DB,
+		redis:       cfg.Redis,
+		storage:     cfg.Storage,
+		wsHub:       cfg.WSHub,
+		mediaModule: cfg.MediaModule,
+		jobsModule:  cfg.JobsModule,
 	}
 }
 
@@ -82,7 +78,6 @@ func (s *Server) Router() *chi.Mux {
 	healthHandler := handlers.NewHealthHandler(s.db, s.redis)
 	fileHandler := handlers.NewFileHandler(s.storage, s.db, s.logger)
 	mediaHandler := handlers.NewMediaHandler(s.mediaModule, s.logger)
-	documentHandler := handlers.NewDocumentHandler(s.documentModule, s.logger)
 	jobHandler := handlers.NewJobHandler(s.jobsModule, s.logger)
 	wsHandler := handlers.NewWebSocketHandler(s.wsHub, s.logger)
 
@@ -103,7 +98,7 @@ func (s *Server) Router() *chi.Mux {
 			r.Delete("/{id}", fileHandler.DeleteFile)
 		})
 
-		// Media operations
+		// Media operations (FFmpeg)
 		r.Route("/media", func(r chi.Router) {
 			r.Post("/probe", mediaHandler.Probe)
 			r.Get("/presets", mediaHandler.GetPresets)
@@ -111,16 +106,6 @@ func (s *Server) Router() *chi.Mux {
 			r.Post("/validate", mediaHandler.ValidateOperations)
 			r.Get("/formats", mediaHandler.GetFormats)
 			r.Get("/codecs", mediaHandler.GetCodecs)
-		})
-
-		// Document operations
-		r.Route("/documents", func(r chi.Router) {
-			r.Get("/formats", documentHandler.GetFormats)
-			r.Get("/templates", documentHandler.GetTemplates)
-			r.Get("/templates/{id}", documentHandler.GetTemplate)
-			r.Post("/templates", documentHandler.CreateTemplate)
-			r.Post("/validate", documentHandler.ValidateConversion)
-			r.Get("/citation-styles", documentHandler.GetCitationStyles)
 		})
 
 		// Job management

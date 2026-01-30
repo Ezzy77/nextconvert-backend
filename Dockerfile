@@ -22,14 +22,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/worker ./cmd/work
 # Server runtime stage
 FROM alpine:3.19 AS server
 
-# Install runtime dependencies including FFmpeg and Pandoc
+# Install runtime dependencies - FFmpeg only
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
-    ffmpeg \
-    pandoc \
-    texlive-xetex \
-    texmf-dist-fontsextra
+    ffmpeg
 
 # Create non-root user
 RUN adduser -D -g '' appuser
@@ -52,14 +49,11 @@ CMD ["/app/server"]
 # Worker runtime stage
 FROM alpine:3.19 AS worker
 
-# Install runtime dependencies including FFmpeg and Pandoc
+# Install runtime dependencies - FFmpeg only
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
-    ffmpeg \
-    pandoc \
-    texlive-xetex \
-    texmf-dist-fontsextra
+    ffmpeg
 
 # Create non-root user
 RUN adduser -D -g '' appuser

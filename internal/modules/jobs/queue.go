@@ -10,9 +10,8 @@ import (
 
 // Task types
 const (
-	TypeMediaProcess   = "media:process"
-	TypeDocumentConvert = "document:convert"
-	TypeCleanupFiles   = "files:cleanup"
+	TypeMediaProcess = "media:process"
+	TypeCleanupFiles = "files:cleanup"
 )
 
 // QueueClient handles job queue operations
@@ -37,25 +36,15 @@ func (q *QueueClient) Close() error {
 
 // MediaProcessPayload contains media processing task data
 type MediaProcessPayload struct {
-	JobID       string      `json:"jobId"`
-	InputPath   string      `json:"inputPath"`
-	OutputPath  string      `json:"outputPath"`
-	Operations  []Operation `json:"operations"`
-}
-
-// DocumentConvertPayload contains document conversion task data
-type DocumentConvertPayload struct {
-	JobID      string                 `json:"jobId"`
-	InputPath  string                 `json:"inputPath"`
-	OutputPath string                 `json:"outputPath"`
-	FromFormat string                 `json:"fromFormat"`
-	ToFormat   string                 `json:"toFormat"`
-	Options    map[string]interface{} `json:"options"`
+	JobID      string      `json:"jobId"`
+	InputPath  string      `json:"inputPath"`
+	OutputPath string      `json:"outputPath"`
+	Operations []Operation `json:"operations"`
 }
 
 // CleanupPayload contains file cleanup task data
 type CleanupPayload struct {
-	Zone     string `json:"zone"`
+	Zone      string `json:"zone"`
 	OlderThan int64  `json:"olderThan"` // Unix timestamp
 }
 
@@ -89,43 +78,6 @@ func (q *QueueClient) EnqueueMediaProcess(payload MediaProcessPayload, priority 
 	}
 
 	q.logger.Info("Media process task enqueued",
-		zap.String("task_id", info.ID),
-		zap.String("job_id", payload.JobID),
-	)
-
-	return info, nil
-}
-
-// EnqueueDocumentConvert queues a document conversion task
-func (q *QueueClient) EnqueueDocumentConvert(payload DocumentConvertPayload, priority string) (*asynq.TaskInfo, error) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	task := asynq.NewTask(TypeDocumentConvert, data)
-
-	opts := []asynq.Option{
-		asynq.MaxRetry(3),
-		asynq.Timeout(10 * time.Minute),
-	}
-
-	switch priority {
-	case "high":
-		opts = append(opts, asynq.Queue("critical"))
-	case "low":
-		opts = append(opts, asynq.Queue("low"))
-	default:
-		opts = append(opts, asynq.Queue("default"))
-	}
-
-	info, err := q.client.Enqueue(task, opts...)
-	if err != nil {
-		q.logger.Error("Failed to enqueue document convert task", zap.Error(err))
-		return nil, err
-	}
-
-	q.logger.Info("Document convert task enqueued",
 		zap.String("task_id", info.ID),
 		zap.String("job_id", payload.JobID),
 	)

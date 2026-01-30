@@ -1,11 +1,12 @@
 # Convert Studio Backend
 
-A powerful media and document conversion API built with Go, wrapping FFmpeg and Pandoc CLI tools.
+A powerful media conversion API built with Go, wrapping FFmpeg for video, audio, and image processing.
 
 ## Features
 
-- **Media Processing**: Video/audio conversion, compression, trimming, watermarking, GIF creation
-- **Document Conversion**: Markdown, DOCX, HTML, PDF, EPUB, LaTeX conversions via Pandoc
+- **Video Processing**: Convert, compress, trim, resize, rotate, watermark
+- **Audio Processing**: Extract, convert, adjust bitrate, normalize
+- **Image Processing**: Resize, convert, generate thumbnails, create GIFs
 - **Job Queue**: Background processing with priority queues and progress tracking
 - **Real-time Updates**: WebSocket support for job progress notifications
 - **Chunked Uploads**: Support for large file uploads with resumable chunks
@@ -15,8 +16,7 @@ A powerful media and document conversion API built with Go, wrapping FFmpeg and 
 
 - Go 1.21+
 - Docker & Docker Compose
-- FFmpeg 6.x
-- Pandoc 3.x
+- FFmpeg 6.x (included in Docker image)
 
 ## Quick Start
 
@@ -44,9 +44,6 @@ The API will be available at `http://localhost:8080`
 
    # Install FFmpeg (macOS)
    brew install ffmpeg
-
-   # Install Pandoc (macOS)
-   brew install pandoc
    ```
 
 2. **Start infrastructure**
@@ -83,20 +80,16 @@ The API will be available at `http://localhost:8080`
 - `POST /api/v1/files/upload/complete` - Complete chunked upload
 - `GET /api/v1/files/:id` - Get file metadata
 - `GET /api/v1/files/:id/download` - Download file
+- `GET /api/v1/files/:id/thumbnail` - Get thumbnail
 - `DELETE /api/v1/files/:id` - Delete file
 
-### Media
+### Media (FFmpeg)
 - `POST /api/v1/media/probe` - Extract media metadata
 - `GET /api/v1/media/presets` - List available presets
+- `GET /api/v1/media/presets/:id` - Get preset details
+- `POST /api/v1/media/validate` - Validate operations
 - `GET /api/v1/media/formats` - List supported formats
 - `GET /api/v1/media/codecs` - List available codecs
-- `POST /api/v1/media/validate` - Validate operations
-
-### Documents
-- `GET /api/v1/documents/formats` - Get format conversion matrix
-- `GET /api/v1/documents/templates` - List templates
-- `GET /api/v1/documents/citation-styles` - List citation styles
-- `POST /api/v1/documents/validate` - Validate conversion
 
 ### Jobs
 - `POST /api/v1/jobs` - Create new job
@@ -104,9 +97,38 @@ The API will be available at `http://localhost:8080`
 - `GET /api/v1/jobs/:id` - Get job details
 - `DELETE /api/v1/jobs/:id` - Cancel job
 - `POST /api/v1/jobs/:id/retry` - Retry failed job
+- `GET /api/v1/jobs/:id/logs` - Get job logs
 
 ### WebSocket
 - `GET /api/v1/ws` - WebSocket connection for real-time updates
+
+## Supported Operations
+
+### Video
+- `trim` - Cut video segments (start/end time)
+- `resize` - Change resolution (width, height, maintain aspect)
+- `compress` - Reduce file size (quality 1-100 or target size)
+- `rotate` - Rotate video (90, 180, 270 degrees)
+- `crop` - Crop video region
+- `convertFormat` - Change container/codec (MP4, WebM, MOV, AVI)
+- `addWatermark` - Add image/text watermark
+- `changeSpeed` - Speed up/slow down
+- `createGif` - Convert to animated GIF
+- `extractAudio` - Extract audio track
+
+### Audio
+- `convertFormat` - Change format (MP3, WAV, AAC, FLAC, OGG)
+- `changeBitrate` - Adjust audio bitrate
+- `adjustVolume` - Change volume level
+- `fadeInOut` - Add fade effects
+- `trim` - Cut audio segments
+- `merge` - Combine multiple audio files
+
+### Image
+- `resize` - Change dimensions
+- `convertFormat` - Change format (PNG, JPG, WebP, GIF)
+- `compress` - Reduce file size
+- `rotate` - Rotate image
 
 ## Project Structure
 
@@ -122,7 +144,6 @@ backend/
 │   │   └── websocket/  # WebSocket hub
 │   ├── modules/
 │   │   ├── media/      # FFmpeg wrapper
-│   │   ├── document/   # Pandoc wrapper
 │   │   └── jobs/       # Job queue management
 │   └── shared/
 │       ├── config/     # Configuration
@@ -137,8 +158,6 @@ backend/
 
 ## Configuration
 
-Environment variables:
-
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Server port | `8080` |
@@ -147,8 +166,9 @@ Environment variables:
 | `REDIS_URL` | Redis address | `localhost:6379` |
 | `STORAGE_BACKEND` | Storage backend (local/s3) | `local` |
 | `FFMPEG_PATH` | Path to FFmpeg binary | `ffmpeg` |
-| `PANDOC_PATH` | Path to Pandoc binary | `pandoc` |
+| `FFPROBE_PATH` | Path to FFprobe binary | `ffprobe` |
 | `WORKER_CONCURRENCY` | Worker concurrency | `2` |
+| `MAX_UPLOAD_SIZE` | Max upload size in bytes | `5GB` |
 
 ## License
 

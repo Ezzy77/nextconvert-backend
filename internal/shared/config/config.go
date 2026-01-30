@@ -21,19 +21,19 @@ type Config struct {
 	// Storage
 	Storage StorageConfig
 
-	// External tools
-	FFmpegPath string
-	PandocPath string
+	// FFmpeg
+	FFmpegPath  string
+	FFprobePath string
 
 	// Worker
 	WorkerConcurrency int
 
 	// Security
-	JWTSecret     string
+	JWTSecret      string
 	AllowedOrigins []string
 
 	// Limits
-	MaxUploadSize int64
+	MaxUploadSize  int64
 	MaxJobsPerUser int
 }
 
@@ -60,7 +60,7 @@ func Load() (*Config, error) {
 		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable"),
 		RedisURL:          getEnv("REDIS_URL", "localhost:6379"),
 		FFmpegPath:        getEnv("FFMPEG_PATH", "ffmpeg"),
-		PandocPath:        getEnv("PANDOC_PATH", "pandoc"),
+		FFprobePath:       getEnv("FFPROBE_PATH", "ffprobe"),
 		WorkerConcurrency: getEnvInt("WORKER_CONCURRENCY", 2),
 		JWTSecret:         getEnv("JWT_SECRET", "change-me-in-production"),
 		AllowedOrigins:    []string{getEnv("ALLOWED_ORIGINS", "http://localhost:5173")},

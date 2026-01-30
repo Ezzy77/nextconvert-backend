@@ -24,49 +24,32 @@ type MediaProcessOptions struct {
 	OnProgress func(percent int, operation string)
 }
 
-// DocumentProcessorInterface defines the interface for document processing
-type DocumentProcessorInterface interface {
-	Process(ctx context.Context, opts DocumentProcessOptions) error
-}
-
-// DocumentProcessOptions mirrors document.ProcessOptions to avoid import
-type DocumentProcessOptions struct {
-	InputPath  string
-	OutputPath string
-	FromFormat string
-	ToFormat   string
-	Options    map[string]interface{}
-}
-
 // HandlerConfig contains dependencies for the job handler
 type HandlerConfig struct {
-	DB                *database.Postgres
-	Redis             *database.Redis
-	Storage           *storage.Service
-	MediaProcessor    MediaProcessorInterface
-	DocumentProcessor DocumentProcessorInterface
-	Logger            *zap.Logger
+	DB             *database.Postgres
+	Redis          *database.Redis
+	Storage        *storage.Service
+	MediaProcessor MediaProcessorInterface
+	Logger         *zap.Logger
 }
 
 // Handler handles job task execution
 type Handler struct {
-	db                *database.Postgres
-	redis             *database.Redis
-	storage           *storage.Service
-	mediaProcessor    MediaProcessorInterface
-	documentProcessor DocumentProcessorInterface
-	logger            *zap.Logger
+	db             *database.Postgres
+	redis          *database.Redis
+	storage        *storage.Service
+	mediaProcessor MediaProcessorInterface
+	logger         *zap.Logger
 }
 
 // NewHandler creates a new job handler
 func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
-		db:                cfg.DB,
-		redis:             cfg.Redis,
-		storage:           cfg.Storage,
-		mediaProcessor:    cfg.MediaProcessor,
-		documentProcessor: cfg.DocumentProcessor,
-		logger:            cfg.Logger,
+		db:             cfg.DB,
+		redis:          cfg.Redis,
+		storage:        cfg.Storage,
+		mediaProcessor: cfg.MediaProcessor,
+		logger:         cfg.Logger,
 	}
 }
 
@@ -106,44 +89,6 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 	}
 
 	h.logger.Info("Media processing completed",
-		zap.String("job_id", payload.JobID),
-		zap.String("output", payload.OutputPath),
-	)
-
-	return nil
-}
-
-// HandleDocumentConvert handles document conversion tasks
-func (h *Handler) HandleDocumentConvert(ctx context.Context, task *asynq.Task) error {
-	var payload DocumentConvertPayload
-	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
-		return fmt.Errorf("failed to unmarshal payload: %w", err)
-	}
-
-	h.logger.Info("Converting document",
-		zap.String("job_id", payload.JobID),
-		zap.String("from", payload.FromFormat),
-		zap.String("to", payload.ToFormat),
-	)
-
-	// Execute document conversion
-	err := h.documentProcessor.Process(ctx, DocumentProcessOptions{
-		InputPath:  payload.InputPath,
-		OutputPath: payload.OutputPath,
-		FromFormat: payload.FromFormat,
-		ToFormat:   payload.ToFormat,
-		Options:    payload.Options,
-	})
-
-	if err != nil {
-		h.logger.Error("Document conversion failed",
-			zap.String("job_id", payload.JobID),
-			zap.Error(err),
-		)
-		return err
-	}
-
-	h.logger.Info("Document conversion completed",
 		zap.String("job_id", payload.JobID),
 		zap.String("output", payload.OutputPath),
 	)

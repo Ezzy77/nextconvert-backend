@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/convert-studio/backend/internal/modules/document"
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
 	"github.com/convert-studio/backend/internal/shared/config"
@@ -43,49 +42,6 @@ func (a *mediaProcessorAdapter) Process(ctx context.Context, opts jobs.MediaProc
 		OutputPath: opts.OutputPath,
 		Operations: operations,
 		OnProgress: opts.OnProgress,
-	})
-}
-
-// documentProcessorAdapter adapts document.Processor to jobs.DocumentProcessorInterface
-type documentProcessorAdapter struct {
-	processor *document.Processor
-}
-
-func (a *documentProcessorAdapter) Process(ctx context.Context, opts jobs.DocumentProcessOptions) error {
-	// Build conversion options from the generic map
-	convOpts := document.ConversionOptions{
-		TargetFormat: opts.ToFormat,
-	}
-
-	// Map options if provided
-	if opts.Options != nil {
-		if metadata, ok := opts.Options["metadata"].(map[string]interface{}); ok {
-			convOpts.Metadata = &document.Metadata{}
-			if title, ok := metadata["title"].(string); ok {
-				convOpts.Metadata.Title = title
-			}
-			if author, ok := metadata["author"].(string); ok {
-				convOpts.Metadata.Author = author
-			}
-		}
-
-		if toc, ok := opts.Options["tableOfContents"].(map[string]interface{}); ok {
-			convOpts.TableOfContents = &document.TOCOptions{}
-			if enabled, ok := toc["enabled"].(bool); ok {
-				convOpts.TableOfContents.Enabled = enabled
-			}
-			if depth, ok := toc["depth"].(float64); ok {
-				convOpts.TableOfContents.Depth = int(depth)
-			}
-		}
-	}
-
-	return a.processor.Process(ctx, document.ProcessOptions{
-		InputPath:  opts.InputPath,
-		OutputPath: opts.OutputPath,
-		FromFormat: opts.FromFormat,
-		ToFormat:   opts.ToFormat,
-		Options:    convOpts,
 	})
 }
 
@@ -131,22 +87,17 @@ func main() {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
 
-	// Initialize processors
+	// Initialize media processor
 	mediaProcessor := media.NewProcessor(storageService, cfg.FFmpegPath, logger)
-	documentProcessor := document.NewProcessor(storageService, cfg.PandocPath, logger)
-
-	// Create adapters for the job handler interface
 	mediaAdapter := &mediaProcessorAdapter{processor: mediaProcessor}
-	documentAdapter := &documentProcessorAdapter{processor: documentProcessor}
 
-	// Create job handlers
+	// Create job handler
 	jobHandler := jobs.NewHandler(jobs.HandlerConfig{
-		DB:                db,
-		Redis:             redisClient,
-		Storage:           storageService,
-		MediaProcessor:    mediaAdapter,
-		DocumentProcessor: documentAdapter,
-		Logger:            logger,
+		DB:             db,
+		Redis:          redisClient,
+		Storage:        storageService,
+		MediaProcessor: mediaAdapter,
+		Logger:         logger,
 	})
 
 	// Configure Asynq server
@@ -171,7 +122,6 @@ func main() {
 	// Register task handlers
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(jobs.TypeMediaProcess, jobHandler.HandleMediaProcess)
-	mux.HandleFunc(jobs.TypeDocumentConvert, jobHandler.HandleDocumentConvert)
 	mux.HandleFunc(jobs.TypeCleanupFiles, jobHandler.HandleCleanupFiles)
 
 	// Start worker

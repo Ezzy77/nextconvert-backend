@@ -26,14 +26,13 @@ func NewJobHandler(module *jobs.Module, logger *zap.Logger) *JobHandler {
 
 // CreateJobRequest represents a job creation request
 type CreateJobRequest struct {
-	Type           string                 `json:"type"` // media or document
-	InputFileID    string                 `json:"inputFileId"`
-	Operations     []jobs.Operation       `json:"operations,omitempty"`
-	Conversion     *jobs.ConversionConfig `json:"conversion,omitempty"`
-	OutputFileName string                 `json:"outputFileName"`
+	InputFileID    string           `json:"inputFileId"`
+	Operations     []jobs.Operation `json:"operations"`
+	OutputFormat   string           `json:"outputFormat"`
+	OutputFileName string           `json:"outputFileName"`
 }
 
-// CreateJob creates a new processing job
+// CreateJob creates a new media processing job
 func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -49,10 +48,9 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.module.CreateJob(r.Context(), jobs.CreateJobParams{
 		UserID:         userID,
-		Type:           req.Type,
 		InputFileID:    req.InputFileID,
 		Operations:     req.Operations,
-		Conversion:     req.Conversion,
+		OutputFormat:   req.OutputFormat,
 		OutputFileName: req.OutputFileName,
 	})
 	if err != nil {
@@ -63,8 +61,8 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("Job created",
 		zap.String("job_id", job.ID),
-		zap.String("type", req.Type),
 		zap.String("user_id", userID),
+		zap.Int("operations", len(req.Operations)),
 	)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -81,9 +79,8 @@ func (h *JobHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := r.URL.Query().Get("status")
-	jobType := r.URL.Query().Get("type")
 
-	jobsList, err := h.module.ListJobs(r.Context(), userID, status, jobType)
+	jobsList, err := h.module.ListJobs(r.Context(), userID, status, "")
 	if err != nil {
 		h.logger.Error("Failed to list jobs", zap.Error(err))
 		http.Error(w, "failed to list jobs", http.StatusInternalServerError)

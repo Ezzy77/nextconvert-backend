@@ -698,6 +698,62 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			// Loop video N times
 			loopCount := getIntParam(op.Params, "count", 2)
 			args = append(args, "-stream_loop", fmt.Sprintf("%d", loopCount-1))
+
+		case "fade":
+			// Video fade in/out transitions
+			fadeIn := getFloatParam(op.Params, "fadeIn", 0)
+			fadeOut := getFloatParam(op.Params, "fadeOut", 0)
+			duration := getFloatParam(op.Params, "duration", 0) // Total video duration for fade out calculation
+			fadeColor := getStringParam(op.Params, "color", "black")
+
+			if fadeIn > 0 {
+				// Fade in from color at start
+				videoFilters = append(videoFilters, fmt.Sprintf("fade=t=in:st=0:d=%.2f:color=%s", fadeIn, fadeColor))
+				audioFilters = append(audioFilters, fmt.Sprintf("afade=t=in:st=0:d=%.2f", fadeIn))
+			}
+			if fadeOut > 0 && duration > 0 {
+				// Fade out to color at end
+				fadeOutStart := duration - fadeOut
+				if fadeOutStart < 0 {
+					fadeOutStart = 0
+				}
+				videoFilters = append(videoFilters, fmt.Sprintf("fade=t=out:st=%.2f:d=%.2f:color=%s", fadeOutStart, fadeOut, fadeColor))
+				audioFilters = append(audioFilters, fmt.Sprintf("afade=t=out:st=%.2f:d=%.2f", fadeOutStart, fadeOut))
+			}
+
+		case "frameRate":
+			// Change video frame rate
+			fps := getIntParam(op.Params, "fps", 30)
+			interpolation := getStringParam(op.Params, "interpolation", "duplicate")
+
+			switch interpolation {
+			case "blend":
+				// Blend frames for smoother motion (motion blur effect)
+				videoFilters = append(videoFilters, fmt.Sprintf("minterpolate=fps=%d:mi_mode=blend", fps))
+			case "motion":
+				// Motion interpolation for smoother slow-mo
+				videoFilters = append(videoFilters, fmt.Sprintf("minterpolate=fps=%d:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1", fps))
+			default:
+				// Simple frame duplication/dropping
+				videoFilters = append(videoFilters, fmt.Sprintf("fps=%d", fps))
+			}
+
+		case "normalize":
+			// Audio normalization
+			normType := getStringParam(op.Params, "type", "loudnorm")
+			targetLevel := getFloatParam(op.Params, "targetLevel", -14) // LUFS for loudnorm
+
+			switch normType {
+			case "loudnorm":
+				// EBU R128 loudness normalization (broadcast standard)
+				audioFilters = append(audioFilters, fmt.Sprintf("loudnorm=I=%.1f:TP=-1.5:LRA=11", targetLevel))
+			case "dynaudnorm":
+				// Dynamic audio normalization (adjusts volume in real-time)
+				audioFilters = append(audioFilters, "dynaudnorm=p=0.9:s=5")
+			case "peak":
+				// Peak normalization to 0dB
+				audioFilters = append(audioFilters, "acompressor=threshold=0.5:ratio=2:attack=5:release=50,volume=2dB")
+			}
 		}
 	}
 

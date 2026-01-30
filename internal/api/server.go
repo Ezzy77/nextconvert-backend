@@ -74,6 +74,9 @@ func (s *Server) Router() *chi.Mux {
 		MaxAge:           300,
 	}))
 
+	// Create Clerk auth middleware
+	clerkAuth := middleware.NewClerkAuthMiddleware(s.config.ClerkSecretKey)
+
 	// Create handlers
 	healthHandler := handlers.NewHealthHandler(s.db, s.redis)
 	fileHandler := handlers.NewFileHandler(s.storage, s.db, s.logger)
@@ -83,44 +86,50 @@ func (s *Server) Router() *chi.Mux {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Health check
+		// Health check (public)
 		r.Get("/health", healthHandler.Health)
 		r.Get("/ready", healthHandler.Ready)
 
-		// File management
-		r.Route("/files", func(r chi.Router) {
-			r.Post("/upload", fileHandler.InitiateUpload)
-			r.Post("/upload/simple", fileHandler.SimpleUpload)
-			r.Post("/upload/chunk", fileHandler.UploadChunk)
-			r.Post("/upload/complete", fileHandler.CompleteUpload)
-			r.Get("/{id}", fileHandler.GetFile)
-			r.Get("/{id}/download", fileHandler.DownloadFile)
-			r.Get("/{id}/thumbnail", fileHandler.GetThumbnail)
-			r.Delete("/{id}", fileHandler.DeleteFile)
-		})
+		// Protected routes - apply Clerk auth middleware
+		r.Group(func(r chi.Router) {
+			r.Use(clerkAuth.Handler)
 
-		// Media operations (FFmpeg)
-		r.Route("/media", func(r chi.Router) {
-			r.Post("/probe", mediaHandler.Probe)
-			r.Get("/presets", mediaHandler.GetPresets)
-			r.Get("/presets/{id}", mediaHandler.GetPreset)
-			r.Post("/validate", mediaHandler.ValidateOperations)
-			r.Get("/formats", mediaHandler.GetFormats)
-			r.Get("/codecs", mediaHandler.GetCodecs)
-		})
+			// File management
+			r.Route("/files", func(r chi.Router) {
+				r.Post("/upload", fileHandler.InitiateUpload)
+				r.Post("/upload/simple", fileHandler.SimpleUpload)
+				r.Post("/upload/chunk", fileHandler.UploadChunk)
+				r.Post("/upload/complete", fileHandler.CompleteUpload)
+				r.Get("/{id}", fileHandler.GetFile)
+				r.Get("/{id}/download", fileHandler.DownloadFile)
+				r.Get("/{id}/thumbnail", fileHandler.GetThumbnail)
+				r.Delete("/{id}", fileHandler.DeleteFile)
+			})
 
-		// Job management
-		r.Route("/jobs", func(r chi.Router) {
-			r.Post("/", jobHandler.CreateJob)
-			r.Get("/", jobHandler.ListJobs)
-			r.Get("/{id}", jobHandler.GetJob)
-			r.Delete("/{id}", jobHandler.CancelJob)
-			r.Post("/{id}/retry", jobHandler.RetryJob)
-			r.Get("/{id}/logs", jobHandler.GetJobLogs)
-		})
+			// Media operations (FFmpeg)
+			r.Route("/media", func(r chi.Router) {
+				r.Post("/probe", mediaHandler.Probe)
+				r.Get("/presets", mediaHandler.GetPresets)
+				r.Get("/presets/{id}", mediaHandler.GetPreset)
+				r.Post("/validate", mediaHandler.ValidateOperations)
+				r.Get("/formats", mediaHandler.GetFormats)
+				r.Get("/codecs", mediaHandler.GetCodecs)
+			})
 
-		// WebSocket
-		r.Get("/ws", wsHandler.HandleConnection)
+			// Job management
+			r.Route("/jobs", func(r chi.Router) {
+				r.Post("/", jobHandler.CreateJob)
+				r.Get("/", jobHandler.ListJobs)
+				r.Get("/{id}", jobHandler.GetJob)
+				r.Delete("/{id}", jobHandler.DeleteJob)
+				r.Post("/{id}/cancel", jobHandler.CancelJob)
+				r.Post("/{id}/retry", jobHandler.RetryJob)
+				r.Get("/{id}/logs", jobHandler.GetJobLogs)
+			})
+
+			// WebSocket
+			r.Get("/ws", wsHandler.HandleConnection)
+		})
 	})
 
 	return r

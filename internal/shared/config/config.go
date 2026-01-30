@@ -22,14 +22,17 @@ type Config struct {
 	Storage StorageConfig
 
 	// FFmpeg
-	FFmpegPath  string
-	FFprobePath string
+	FFmpegPath          string
+	FFprobePath         string
+	FFmpegMaxThreads    int  // Max CPU threads for FFmpeg (0 = unlimited)
+	FFmpegHardwareAccel bool // Use hardware acceleration (VideoToolbox on macOS)
+	FFmpegFastPresets   bool // Use faster encoding presets (less CPU, slightly larger files)
 
 	// Worker
 	WorkerConcurrency int
 
-	// Security
-	JWTSecret      string
+	// Security & Authentication (Clerk)
+	ClerkSecretKey string
 	AllowedOrigins []string
 
 	// Limits
@@ -54,18 +57,21 @@ func Load() (*Config, error) {
 	godotenv.Load()
 
 	cfg := &Config{
-		Environment:       getEnv("ENVIRONMENT", "development"),
-		Port:              getEnvInt("PORT", 8080),
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
-		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable"),
-		RedisURL:          getEnv("REDIS_URL", "localhost:6379"),
-		FFmpegPath:        getEnv("FFMPEG_PATH", "ffmpeg"),
-		FFprobePath:       getEnv("FFPROBE_PATH", "ffprobe"),
-		WorkerConcurrency: getEnvInt("WORKER_CONCURRENCY", 2),
-		JWTSecret:         getEnv("JWT_SECRET", "change-me-in-production"),
-		AllowedOrigins:    []string{getEnv("ALLOWED_ORIGINS", "http://localhost:5173")},
-		MaxUploadSize:     getEnvInt64("MAX_UPLOAD_SIZE", 5*1024*1024*1024), // 5GB
-		MaxJobsPerUser:    getEnvInt("MAX_JOBS_PER_USER", 20),
+		Environment:         getEnv("ENVIRONMENT", "development"),
+		Port:                getEnvInt("PORT", 8080),
+		LogLevel:            getEnv("LOG_LEVEL", "info"),
+		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable"),
+		RedisURL:            getEnv("REDIS_URL", "localhost:6379"),
+		FFmpegPath:          getEnv("FFMPEG_PATH", "ffmpeg"),
+		FFprobePath:         getEnv("FFPROBE_PATH", "ffprobe"),
+		FFmpegMaxThreads:    getEnvInt("FFMPEG_MAX_THREADS", 0),         // Default: 0 = auto (use available cores)
+		FFmpegHardwareAccel: getEnvBool("FFMPEG_HARDWARE_ACCEL", false), // Default: false (cloud servers typically don't have GPU)
+		FFmpegFastPresets:   getEnvBool("FFMPEG_FAST_PRESETS", true),    // Default: use fast presets for quicker processing
+		WorkerConcurrency:   getEnvInt("WORKER_CONCURRENCY", 2),
+		ClerkSecretKey:      getEnv("CLERK_SECRET_KEY", ""),
+		AllowedOrigins:      []string{getEnv("ALLOWED_ORIGINS", "http://localhost:5173")},
+		MaxUploadSize:       getEnvInt64("MAX_UPLOAD_SIZE", 5*1024*1024*1024), // 5GB
+		MaxJobsPerUser:      getEnvInt("MAX_JOBS_PER_USER", 20),
 		Storage: StorageConfig{
 			Backend:     getEnv("STORAGE_BACKEND", "local"),
 			BasePath:    getEnv("STORAGE_BASE_PATH", "./data"),
@@ -101,6 +107,13 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return intVal
 		}
+	}
+	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		return value == "true" || value == "1" || value == "yes"
 	}
 	return defaultValue
 }

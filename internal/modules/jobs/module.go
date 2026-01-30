@@ -68,6 +68,7 @@ type JobError struct {
 type CreateJobParams struct {
 	UserID         string
 	InputFileID    string
+	InputFileIDs   []string // For merge operations (multiple files)
 	Operations     []Operation
 	OutputFormat   string
 	OutputFileName string
@@ -99,14 +100,42 @@ func NewModule(db *database.Postgres, redis *database.Redis, storage *storage.Se
 
 // CreateJob creates a new media processing job
 func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, error) {
-	// Look up input file to get the storage path
+	// Check if this is a merge operation (multiple input files)
+	isMerge := len(params.InputFileIDs) > 1
+
 	var inputFilePath string
+	var inputFilePaths []string
 	var originalName string
-	err := m.db.Pool.QueryRow(ctx, `
-		SELECT storage_path, original_name FROM files WHERE id = $1
-	`, params.InputFileID).Scan(&inputFilePath, &originalName)
-	if err != nil {
-		return nil, fmt.Errorf("input file not found: %w", err)
+
+	if isMerge {
+		// Look up all input files for merge
+		inputFilePaths = make([]string, 0, len(params.InputFileIDs))
+		for i, fileID := range params.InputFileIDs {
+			var storagePath, name string
+			err := m.db.Pool.QueryRow(ctx, `
+				SELECT storage_path, original_name FROM files WHERE id = $1
+			`, fileID).Scan(&storagePath, &name)
+			if err != nil {
+				return nil, fmt.Errorf("input file %d not found: %w", i+1, err)
+			}
+			inputFilePaths = append(inputFilePaths, storagePath)
+			if i == 0 {
+				originalName = name
+				inputFilePath = storagePath
+			}
+		}
+		// Use first file ID as primary input
+		if params.InputFileID == "" && len(params.InputFileIDs) > 0 {
+			params.InputFileID = params.InputFileIDs[0]
+		}
+	} else {
+		// Single input file
+		err := m.db.Pool.QueryRow(ctx, `
+			SELECT storage_path, original_name FROM files WHERE id = $1
+		`, params.InputFileID).Scan(&inputFilePath, &originalName)
+		if err != nil {
+			return nil, fmt.Errorf("input file not found: %w", err)
+		}
 	}
 
 	// Generate output filename if not provided
@@ -114,7 +143,11 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	if outputFileName == "" {
 		ext := filepath.Ext(originalName)
 		baseName := strings.TrimSuffix(originalName, ext)
-		outputFileName = fmt.Sprintf("%s_converted.%s", baseName, params.OutputFormat)
+		if isMerge {
+			outputFileName = fmt.Sprintf("%s_merged.%s", baseName, params.OutputFormat)
+		} else {
+			outputFileName = fmt.Sprintf("%s_converted.%s", baseName, params.OutputFormat)
+		}
 	}
 
 	jobID := uuid.New().String()
@@ -138,7 +171,7 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	operationsJSON, _ := json.Marshal(params.Operations)
 	progressJSON, _ := json.Marshal(job.Progress)
 
-	_, err = m.db.Pool.Exec(ctx, `
+	_, err := m.db.Pool.Exec(ctx, `
 		INSERT INTO jobs (id, user_id, status, priority, input_file_id, output_format, output_file_name, operations, progress, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, jobID, nullString(params.UserID), job.Status, job.Priority, params.InputFileID, params.OutputFormat, outputFileName, operationsJSON, progressJSON, now)
@@ -153,12 +186,18 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	outputPath := m.storage.GetPath(storage.ZoneOutput, fmt.Sprintf("%s.%s", jobID, params.OutputFormat))
 
 	// Enqueue to Asynq
-	_, err = m.queue.EnqueueMediaProcess(MediaProcessPayload{
+	payload := MediaProcessPayload{
 		JobID:      jobID,
 		InputPath:  inputFilePath,
 		OutputPath: outputPath,
 		Operations: params.Operations,
-	}, "default")
+	}
+	// Add multiple input paths for merge
+	if isMerge {
+		payload.InputPaths = inputFilePaths
+	}
+
+	_, err = m.queue.EnqueueMediaProcess(payload, "default")
 	if err != nil {
 		// Update job status to failed
 		m.db.Pool.Exec(ctx, "UPDATE jobs SET status = $1 WHERE id = $2", StatusFailed, jobID)
@@ -169,7 +208,9 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 		zap.String("job_id", job.ID),
 		zap.String("user_id", job.UserID),
 		zap.String("input_file", params.InputFileID),
+		zap.Int("input_files_count", len(inputFilePaths)),
 		zap.Int("operations", len(job.Operations)),
+		zap.Bool("is_merge", isMerge),
 	)
 
 	return job, nil
@@ -192,7 +233,7 @@ func (m *Module) ListJobs(ctx context.Context, userID, status, jobType string) (
 		       operations, progress, error, created_at, started_at, completed_at
 		FROM jobs
 		WHERE ($1 = '' OR $1 = 'anonymous' OR user_id = $1 OR user_id IS NULL)
-		  AND ($2 = '' OR status = $2)
+		  AND ($2 = '' OR status = $2::job_status)
 		ORDER BY created_at DESC
 		LIMIT 50
 	`
@@ -243,6 +284,24 @@ func (m *Module) CancelJob(ctx context.Context, jobID string) error {
 	if m.wsHub != nil {
 		m.wsHub.BroadcastJobFailed(jobID, "Job cancelled by user")
 	}
+
+	return nil
+}
+
+// DeleteJob removes a job from the database
+func (m *Module) DeleteJob(ctx context.Context, jobID string) error {
+	// Delete from database
+	result, err := m.db.Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, jobID)
+	if err != nil {
+		return fmt.Errorf("failed to delete job: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("job not found")
+	}
+
+	// Remove from cache
+	delete(m.jobs, jobID)
 
 	return nil
 }

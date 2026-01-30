@@ -38,6 +38,7 @@ func (q *QueueClient) Close() error {
 type MediaProcessPayload struct {
 	JobID      string      `json:"jobId"`
 	InputPath  string      `json:"inputPath"`
+	InputPaths []string    `json:"inputPaths,omitempty"` // For merge operations
 	OutputPath string      `json:"outputPath"`
 	Operations []Operation `json:"operations"`
 }

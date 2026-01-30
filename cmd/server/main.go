@@ -75,7 +75,7 @@ func main() {
 	jobQueue := jobs.NewQueueClient(cfg.RedisURL, logger)
 
 	// Initialize modules
-	mediaModule := media.NewModule(storageService, jobQueue, logger)
+	mediaModule := media.NewModule(db, storageService, jobQueue, logger)
 	jobsModule := jobs.NewModule(db, redisClient, storageService, jobQueue, wsHub, logger)
 
 	// Create API server

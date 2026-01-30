@@ -27,6 +27,7 @@ func NewJobHandler(module *jobs.Module, logger *zap.Logger) *JobHandler {
 // CreateJobRequest represents a job creation request
 type CreateJobRequest struct {
 	InputFileID    string           `json:"inputFileId"`
+	InputFileIDs   []string         `json:"inputFileIds,omitempty"` // For merge operations
 	Operations     []jobs.Operation `json:"operations"`
 	OutputFormat   string           `json:"outputFormat"`
 	OutputFileName string           `json:"outputFileName"`
@@ -46,9 +47,16 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		userID = user.ID
 	}
 
+	// Use InputFileIDs if provided (merge), otherwise use single InputFileID
+	inputFileID := req.InputFileID
+	if len(req.InputFileIDs) > 0 && inputFileID == "" {
+		inputFileID = req.InputFileIDs[0]
+	}
+
 	job, err := h.module.CreateJob(r.Context(), jobs.CreateJobParams{
 		UserID:         userID,
-		InputFileID:    req.InputFileID,
+		InputFileID:    inputFileID,
+		InputFileIDs:   req.InputFileIDs,
 		Operations:     req.Operations,
 		OutputFormat:   req.OutputFormat,
 		OutputFileName: req.OutputFileName,
@@ -63,6 +71,7 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		zap.String("job_id", job.ID),
 		zap.String("user_id", userID),
 		zap.Int("operations", len(req.Operations)),
+		zap.Int("input_files", len(req.InputFileIDs)),
 	)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -105,7 +114,7 @@ func (h *JobHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(job)
 }
 
-// CancelJob cancels a job
+// CancelJob cancels a job (keeps it in database)
 func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -116,6 +125,20 @@ func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info("Job cancelled", zap.String("job_id", jobID))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteJob deletes a job from the database
+func (h *JobHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	if err := h.module.DeleteJob(r.Context(), jobID); err != nil {
+		h.logger.Error("Failed to delete job", zap.Error(err), zap.String("job_id", jobID))
+		http.Error(w, "failed to delete job", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("Job deleted", zap.String("job_id", jobID))
 	w.WriteHeader(http.StatusNoContent)
 }
 

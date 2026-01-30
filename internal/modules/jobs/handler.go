@@ -17,6 +17,7 @@ import (
 // MediaProcessorInterface defines the interface for media processing
 type MediaProcessorInterface interface {
 	Process(ctx context.Context, opts MediaProcessOptions) error
+	ProcessMerge(ctx context.Context, opts MergeProcessOptions) error
 }
 
 // MediaProcessOptions mirrors media.ProcessOptions to avoid import
@@ -24,6 +25,13 @@ type MediaProcessOptions struct {
 	InputPath  string
 	OutputPath string
 	Operations []Operation
+	OnProgress func(percent int, operation string)
+}
+
+// MergeProcessOptions contains options for merging multiple videos
+type MergeProcessOptions struct {
+	InputPaths []string
+	OutputPath string
 	OnProgress func(percent int, operation string)
 }
 
@@ -66,11 +74,16 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		return fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	// Check if this is a merge operation
+	isMerge := len(payload.InputPaths) > 1
+
 	h.logger.Info("Processing media job",
 		zap.String("job_id", payload.JobID),
 		zap.String("input", payload.InputPath),
+		zap.Int("input_count", len(payload.InputPaths)),
 		zap.String("output", payload.OutputPath),
 		zap.Int("operations", len(payload.Operations)),
+		zap.Bool("is_merge", isMerge),
 	)
 
 	// Update job status to processing
@@ -88,23 +101,43 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		return err
 	}
 
-	// Execute media processing with progress callback
-	err := h.mediaProcessor.Process(ctx, MediaProcessOptions{
-		InputPath:  payload.InputPath,
-		OutputPath: payload.OutputPath,
-		Operations: payload.Operations,
-		OnProgress: func(percent int, operation string) {
-			h.logger.Debug("Media processing progress",
-				zap.String("job_id", payload.JobID),
-				zap.Int("percent", percent),
-				zap.String("operation", operation),
-			)
-			// Update progress in jobs module (which broadcasts via WebSocket)
-			if h.jobsModule != nil {
-				h.jobsModule.UpdateProgress(ctx, payload.JobID, percent, operation, 0)
-			}
-		},
-	})
+	var err error
+
+	if isMerge {
+		// Execute merge operation
+		err = h.mediaProcessor.ProcessMerge(ctx, MergeProcessOptions{
+			InputPaths: payload.InputPaths,
+			OutputPath: payload.OutputPath,
+			OnProgress: func(percent int, operation string) {
+				h.logger.Debug("Merge processing progress",
+					zap.String("job_id", payload.JobID),
+					zap.Int("percent", percent),
+					zap.String("operation", operation),
+				)
+				if h.jobsModule != nil {
+					h.jobsModule.UpdateProgress(ctx, payload.JobID, percent, operation, 0)
+				}
+			},
+		})
+	} else {
+		// Execute regular media processing with progress callback
+		err = h.mediaProcessor.Process(ctx, MediaProcessOptions{
+			InputPath:  payload.InputPath,
+			OutputPath: payload.OutputPath,
+			Operations: payload.Operations,
+			OnProgress: func(percent int, operation string) {
+				h.logger.Debug("Media processing progress",
+					zap.String("job_id", payload.JobID),
+					zap.Int("percent", percent),
+					zap.String("operation", operation),
+				)
+				// Update progress in jobs module (which broadcasts via WebSocket)
+				if h.jobsModule != nil {
+					h.jobsModule.UpdateProgress(ctx, payload.JobID, percent, operation, 0)
+				}
+			},
+		})
+	}
 
 	if err != nil {
 		h.logger.Error("Media processing failed",

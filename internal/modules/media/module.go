@@ -2,15 +2,22 @@ package media
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"github.com/convert-studio/backend/internal/modules/jobs"
+	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
 	"go.uber.org/zap"
 )
 
 // Module handles media operations
 type Module struct {
+	db       *database.Postgres
 	storage  *storage.Service
 	jobQueue *jobs.QueueClient
 	logger   *zap.Logger
@@ -25,26 +32,26 @@ type Operation struct {
 
 // MediaInfo contains metadata about a media file
 type MediaInfo struct {
-	Format     string        `json:"format"`
-	Duration   float64       `json:"duration"`
-	Size       int64         `json:"size"`
-	BitRate    int           `json:"bitRate"`
-	VideoCodec string        `json:"videoCodec,omitempty"`
-	AudioCodec string        `json:"audioCodec,omitempty"`
-	Width      int           `json:"width,omitempty"`
-	Height     int           `json:"height,omitempty"`
-	FrameRate  float64       `json:"frameRate,omitempty"`
-	Streams    []StreamInfo  `json:"streams"`
+	Format     string       `json:"format"`
+	Duration   float64      `json:"duration"`
+	Size       int64        `json:"size"`
+	BitRate    int          `json:"bitRate"`
+	VideoCodec string       `json:"videoCodec,omitempty"`
+	AudioCodec string       `json:"audioCodec,omitempty"`
+	Width      int          `json:"width,omitempty"`
+	Height     int          `json:"height,omitempty"`
+	FrameRate  float64      `json:"frameRate,omitempty"`
+	Streams    []StreamInfo `json:"streams"`
 }
 
 // StreamInfo contains information about a media stream
 type StreamInfo struct {
-	Index     int    `json:"index"`
-	Type      string `json:"type"`
-	Codec     string `json:"codec"`
-	BitRate   int    `json:"bitRate,omitempty"`
-	Channels  int    `json:"channels,omitempty"`
-	SampleRate int   `json:"sampleRate,omitempty"`
+	Index      int    `json:"index"`
+	Type       string `json:"type"`
+	Codec      string `json:"codec"`
+	BitRate    int    `json:"bitRate,omitempty"`
+	Channels   int    `json:"channels,omitempty"`
+	SampleRate int    `json:"sampleRate,omitempty"`
 }
 
 // Preset represents a predefined operation set
@@ -66,26 +73,27 @@ type ValidationResult struct {
 
 // FormatInfo describes a supported format
 type FormatInfo struct {
-	Name       string   `json:"name"`
-	Extension  string   `json:"extension"`
-	MimeTypes  []string `json:"mimeTypes"`
-	Type       string   `json:"type"` // video, audio, image
-	Encodable  bool     `json:"encodable"`
-	Decodable  bool     `json:"decodable"`
+	Name      string   `json:"name"`
+	Extension string   `json:"extension"`
+	MimeTypes []string `json:"mimeTypes"`
+	Type      string   `json:"type"` // video, audio, image
+	Encodable bool     `json:"encodable"`
+	Decodable bool     `json:"decodable"`
 }
 
 // CodecInfo describes an available codec
 type CodecInfo struct {
-	Name        string `json:"name"`
-	LongName    string `json:"longName"`
-	Type        string `json:"type"` // video, audio
-	Encoding    bool   `json:"encoding"`
-	Decoding    bool   `json:"decoding"`
+	Name     string `json:"name"`
+	LongName string `json:"longName"`
+	Type     string `json:"type"` // video, audio
+	Encoding bool   `json:"encoding"`
+	Decoding bool   `json:"decoding"`
 }
 
 // NewModule creates a new media module
-func NewModule(storage *storage.Service, jobQueue *jobs.QueueClient, logger *zap.Logger) *Module {
+func NewModule(db *database.Postgres, storage *storage.Service, jobQueue *jobs.QueueClient, logger *zap.Logger) *Module {
 	m := &Module{
+		db:       db,
 		storage:  storage,
 		jobQueue: jobQueue,
 		logger:   logger,
@@ -165,25 +173,138 @@ func (m *Module) initPresets() {
 	}
 }
 
+// ffprobeOutput represents the JSON output from ffprobe
+type ffprobeOutput struct {
+	Format struct {
+		Filename   string `json:"filename"`
+		FormatName string `json:"format_name"`
+		Duration   string `json:"duration"`
+		Size       string `json:"size"`
+		BitRate    string `json:"bit_rate"`
+	} `json:"format"`
+	Streams []struct {
+		Index        int    `json:"index"`
+		CodecType    string `json:"codec_type"`
+		CodecName    string `json:"codec_name"`
+		Width        int    `json:"width,omitempty"`
+		Height       int    `json:"height,omitempty"`
+		RFrameRate   string `json:"r_frame_rate,omitempty"`
+		AvgFrameRate string `json:"avg_frame_rate,omitempty"`
+		BitRate      string `json:"bit_rate,omitempty"`
+		Channels     int    `json:"channels,omitempty"`
+		SampleRate   string `json:"sample_rate,omitempty"`
+	} `json:"streams"`
+}
+
 // Probe extracts metadata from a media file
 func (m *Module) Probe(ctx context.Context, fileID string) (*MediaInfo, error) {
-	// TODO: Implement actual ffprobe call
-	// For now, return mock data
-	return &MediaInfo{
-		Format:     "mp4",
-		Duration:   120.5,
-		Size:       50000000,
-		BitRate:    3333000,
-		VideoCodec: "h264",
-		AudioCodec: "aac",
-		Width:      1920,
-		Height:     1080,
-		FrameRate:  30,
-		Streams: []StreamInfo{
-			{Index: 0, Type: "video", Codec: "h264", BitRate: 3000000},
-			{Index: 1, Type: "audio", Codec: "aac", BitRate: 128000, Channels: 2, SampleRate: 48000},
-		},
-	}, nil
+	// Get file path from database
+	var storagePath string
+	var size int64
+	err := m.db.Pool.QueryRow(ctx,
+		"SELECT storage_path, size_bytes FROM files WHERE id = $1", fileID).Scan(&storagePath, &size)
+	if err != nil {
+		m.logger.Error("Failed to get file from database", zap.Error(err), zap.String("file_id", fileID))
+		return nil, fmt.Errorf("file not found: %w", err)
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(storagePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file does not exist on disk: %s", storagePath)
+	}
+
+	// Run ffprobe
+	args := []string{
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_format",
+		"-show_streams",
+		storagePath,
+	}
+
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		m.logger.Error("ffprobe failed", zap.Error(err), zap.String("path", storagePath))
+		return nil, fmt.Errorf("ffprobe failed: %w", err)
+	}
+
+	// Parse JSON output
+	var probeData ffprobeOutput
+	if err := json.Unmarshal(output, &probeData); err != nil {
+		m.logger.Error("Failed to parse ffprobe output", zap.Error(err))
+		return nil, fmt.Errorf("failed to parse ffprobe output: %w", err)
+	}
+
+	// Build MediaInfo
+	info := &MediaInfo{
+		Format:  probeData.Format.FormatName,
+		Size:    size,
+		Streams: make([]StreamInfo, 0),
+	}
+
+	// Parse duration
+	if probeData.Format.Duration != "" {
+		if d, err := strconv.ParseFloat(probeData.Format.Duration, 64); err == nil {
+			info.Duration = d
+		}
+	}
+
+	// Parse bitrate
+	if probeData.Format.BitRate != "" {
+		if br, err := strconv.Atoi(probeData.Format.BitRate); err == nil {
+			info.BitRate = br
+		}
+	}
+
+	// Process streams
+	for _, stream := range probeData.Streams {
+		streamInfo := StreamInfo{
+			Index: stream.Index,
+			Type:  stream.CodecType,
+			Codec: stream.CodecName,
+		}
+
+		if stream.BitRate != "" {
+			if br, err := strconv.Atoi(stream.BitRate); err == nil {
+				streamInfo.BitRate = br
+			}
+		}
+
+		if stream.CodecType == "video" {
+			info.VideoCodec = stream.CodecName
+			info.Width = stream.Width
+			info.Height = stream.Height
+
+			// Parse frame rate (format: "30000/1001" or "30/1")
+			frameRateStr := stream.AvgFrameRate
+			if frameRateStr == "" || frameRateStr == "0/0" {
+				frameRateStr = stream.RFrameRate
+			}
+			if frameRateStr != "" && frameRateStr != "0/0" {
+				parts := strings.Split(frameRateStr, "/")
+				if len(parts) == 2 {
+					num, _ := strconv.ParseFloat(parts[0], 64)
+					den, _ := strconv.ParseFloat(parts[1], 64)
+					if den > 0 {
+						info.FrameRate = num / den
+					}
+				}
+			}
+		} else if stream.CodecType == "audio" {
+			info.AudioCodec = stream.CodecName
+			streamInfo.Channels = stream.Channels
+			if stream.SampleRate != "" {
+				if sr, err := strconv.Atoi(stream.SampleRate); err == nil {
+					streamInfo.SampleRate = sr
+				}
+			}
+		}
+
+		info.Streams = append(info.Streams, streamInfo)
+	}
+
+	return info, nil
 }
 
 // GetPresets returns all presets

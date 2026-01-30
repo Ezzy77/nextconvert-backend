@@ -45,6 +45,14 @@ func (a *mediaProcessorAdapter) Process(ctx context.Context, opts jobs.MediaProc
 	})
 }
 
+func (a *mediaProcessorAdapter) ProcessMerge(ctx context.Context, opts jobs.MergeProcessOptions) error {
+	return a.processor.ProcessMerge(ctx, media.MergeOptions{
+		InputPaths: opts.InputPaths,
+		OutputPath: opts.OutputPath,
+		OnProgress: opts.OnProgress,
+	})
+}
+
 func main() {
 	// Load configuration
 	cfg, err := config.Load()
@@ -82,10 +90,17 @@ func main() {
 	defer redisClient.Close()
 
 	// Initialize storage
+	logger.Info("Initializing storage",
+		zap.String("backend", cfg.Storage.Backend),
+		zap.String("base_path", cfg.Storage.BasePath),
+	)
 	storageService, err := storage.NewService(cfg.Storage)
 	if err != nil {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
+	logger.Info("Storage initialized successfully",
+		zap.String("output_path_example", storageService.GetPath(storage.ZoneOutput, "test.mp4")),
+	)
 
 	// Initialize queue client (for potential re-queuing)
 	queueClient := jobs.NewQueueClient(cfg.RedisURL, logger)
@@ -94,8 +109,20 @@ func main() {
 	// Initialize jobs module (without WebSocket hub - worker doesn't need it)
 	jobsModule := jobs.NewModule(db, redisClient, storageService, queueClient, nil, logger)
 
-	// Initialize media processor
-	mediaProcessor := media.NewProcessor(storageService, cfg.FFmpegPath, logger)
+	// Initialize media processor with CPU-friendly settings
+	mediaProcessor := media.NewProcessorWithConfig(storageService, media.ProcessorConfig{
+		FFmpegPath:        cfg.FFmpegPath,
+		MaxThreads:        cfg.FFmpegMaxThreads,    // Limit CPU threads (default: 2)
+		UseHardwareAccel:  cfg.FFmpegHardwareAccel, // Use VideoToolbox on macOS
+		PreferFastPresets: cfg.FFmpegFastPresets,   // Use veryfast preset
+	}, logger)
+
+	logger.Info("Media processor initialized",
+		zap.Int("max_threads", cfg.FFmpegMaxThreads),
+		zap.Bool("hardware_accel", cfg.FFmpegHardwareAccel),
+		zap.Bool("fast_presets", cfg.FFmpegFastPresets),
+	)
+
 	mediaAdapter := &mediaProcessorAdapter{processor: mediaProcessor}
 
 	// Create job handler

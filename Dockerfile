@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -49,11 +49,13 @@ CMD ["/app/server"]
 # Worker runtime stage
 FROM alpine:3.19 AS worker
 
-# Install runtime dependencies - FFmpeg only
+# Install runtime dependencies - FFmpeg and fonts for watermarks
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
-    ffmpeg
+    ffmpeg \
+    ttf-dejavu \
+    fontconfig
 
 # Create non-root user
 RUN adduser -D -g '' appuser

@@ -45,6 +45,8 @@ services:
       context: .
       target: server
     container_name: convert-studio-server
+    env_file:
+      - .env
     environment:
       - ENVIRONMENT=development
       - PORT=8080
@@ -54,7 +56,6 @@ services:
       - STORAGE_BASE_PATH=/app/data
       - FFMPEG_PATH=/usr/bin/ffmpeg
       - FFPROBE_PATH=/usr/bin/ffprobe
-      - JWT_SECRET=change-me-in-production
       - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
       - LOG_LEVEL=debug
     volumes:

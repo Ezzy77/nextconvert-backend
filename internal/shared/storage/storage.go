@@ -23,14 +23,14 @@ const (
 
 // FileInfo represents metadata about a stored file
 type FileInfo struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Path        string    `json:"path"`
-	Zone        Zone      `json:"zone"`
-	Size        int64     `json:"size"`
-	MimeType    string    `json:"mime_type"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	Zone      Zone      `json:"zone"`
+	Size      int64     `json:"size"`
+	MimeType  string    `json:"mime_type"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // Service provides file storage operations
@@ -155,6 +155,14 @@ func (s *Service) Move(ctx context.Context, srcPath string, destZone Zone, destN
 // GetPath returns the full path for a file in a zone
 func (s *Service) GetPath(zone Zone, filename string) string {
 	return filepath.Join(s.basePath, string(zone), filename)
+}
+
+// GetFullPath returns the absolute filesystem path for a storage path
+// For local storage, this is the path as stored
+// For S3 or other backends, this may need to download to a temp location
+func (s *Service) GetFullPath(storagePath string) string {
+	// For local backend, the storage path is already the full path
+	return storagePath
 }
 
 // LocalBackend implements local filesystem storage

@@ -22,10 +22,10 @@ type Processor struct {
 
 // ProcessOptions contains options for media processing
 type ProcessOptions struct {
-	InputPath      string
-	OutputPath     string
-	Operations     []Operation
-	OnProgress     func(percent int, operation string)
+	InputPath  string
+	OutputPath string
+	Operations []Operation
+	OnProgress func(percent int, operation string)
 }
 
 // NewProcessor creates a new media processor

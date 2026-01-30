@@ -143,7 +143,17 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 
 	// Mark job as completed
 	if h.jobsModule != nil {
-		h.jobsModule.CompleteJob(ctx, payload.JobID, outputFileID)
+		h.logger.Info("Marking job as completed",
+			zap.String("job_id", payload.JobID),
+			zap.String("output_file_id", outputFileID),
+		)
+		if err := h.jobsModule.CompleteJob(ctx, payload.JobID, outputFileID); err != nil {
+			h.logger.Error("Failed to mark job as completed", zap.Error(err))
+		} else {
+			h.logger.Info("Job marked as completed successfully", zap.String("job_id", payload.JobID))
+		}
+	} else {
+		h.logger.Warn("JobsModule is nil, cannot mark job as completed")
 	}
 
 	h.logger.Info("Media processing completed",

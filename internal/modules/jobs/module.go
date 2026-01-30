@@ -27,21 +27,21 @@ const (
 
 // Job represents a media processing job
 type Job struct {
-	ID             string     `json:"id"`
-	UserID         string     `json:"userId"`
-	Status         string     `json:"status"`
-	Priority       int        `json:"priority"`
-	InputFileID    string     `json:"inputFileId"`
-	InputFilePath  string     `json:"inputFilePath,omitempty"`
-	OutputFileID   string     `json:"outputFileId,omitempty"`
+	ID             string      `json:"id"`
+	UserID         string      `json:"userId"`
+	Status         string      `json:"status"`
+	Priority       int         `json:"priority"`
+	InputFileID    string      `json:"inputFileId"`
+	InputFilePath  string      `json:"inputFilePath,omitempty"`
+	OutputFileID   string      `json:"outputFileId,omitempty"`
 	Operations     []Operation `json:"operations"`
-	OutputFormat   string     `json:"outputFormat"`
-	OutputFileName string     `json:"outputFileName"`
-	Progress       Progress   `json:"progress"`
-	Error          *JobError  `json:"error,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	StartedAt      *time.Time `json:"startedAt,omitempty"`
-	CompletedAt    *time.Time `json:"completedAt,omitempty"`
+	OutputFormat   string      `json:"outputFormat"`
+	OutputFileName string      `json:"outputFileName"`
+	Progress       Progress    `json:"progress"`
+	Error          *JobError   `json:"error,omitempty"`
+	CreatedAt      time.Time   `json:"createdAt"`
+	StartedAt      *time.Time  `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time  `json:"completedAt,omitempty"`
 }
 
 // Operation represents a media operation
@@ -75,13 +75,13 @@ type CreateJobParams struct {
 
 // Module handles job management
 type Module struct {
-	db          *database.Postgres
-	redis       *database.Redis
-	storage     *storage.Service
-	queue       *QueueClient
-	wsHub       *websocket.Hub
-	logger      *zap.Logger
-	jobs        map[string]*Job // In-memory cache (also stored in DB)
+	db      *database.Postgres
+	redis   *database.Redis
+	storage *storage.Service
+	queue   *QueueClient
+	wsHub   *websocket.Hub
+	logger  *zap.Logger
+	jobs    map[string]*Job // In-memory cache (also stored in DB)
 }
 
 // NewModule creates a new jobs module
@@ -137,7 +137,7 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	// Store in database
 	operationsJSON, _ := json.Marshal(params.Operations)
 	progressJSON, _ := json.Marshal(job.Progress)
-	
+
 	_, err = m.db.Pool.Exec(ctx, `
 		INSERT INTO jobs (id, user_id, status, priority, input_file_id, output_format, output_file_name, operations, progress, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -175,21 +175,13 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	return job, nil
 }
 
-// GetJob retrieves a job by ID
+// GetJob retrieves a job by ID - always reads from database for fresh status
 func (m *Module) GetJob(ctx context.Context, jobID string) (*Job, error) {
-	// Check memory cache first
-	if job, ok := m.jobs[jobID]; ok {
-		return job, nil
-	}
-
-	// Query from database
+	// Always query from database to get fresh status
 	job, err := m.getJobFromDB(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}
-
-	// Cache it
-	m.jobs[jobID] = job
 	return job, nil
 }
 
@@ -343,12 +335,24 @@ func (m *Module) CompleteJob(ctx context.Context, jobID, outputFileID string) er
 	progress := Progress{Percent: 100}
 	progressJSON, _ := json.Marshal(progress)
 
-	_, err := m.db.Pool.Exec(ctx, `
+	m.logger.Info("CompleteJob: Updating job in database",
+		zap.String("job_id", jobID),
+		zap.String("output_file_id", outputFileID),
+		zap.String("status", StatusCompleted),
+	)
+
+	result, err := m.db.Pool.Exec(ctx, `
 		UPDATE jobs SET status = $1, output_file_id = $2, progress = $3, completed_at = $4 WHERE id = $5
 	`, StatusCompleted, outputFileID, progressJSON, now, jobID)
 	if err != nil {
+		m.logger.Error("CompleteJob: Failed to update job in database", zap.Error(err))
 		return err
 	}
+
+	m.logger.Info("CompleteJob: Database update successful",
+		zap.String("job_id", jobID),
+		zap.Int64("rows_affected", result.RowsAffected()),
+	)
 
 	// Update cache
 	if job, ok := m.jobs[jobID]; ok {

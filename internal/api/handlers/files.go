@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -191,7 +193,7 @@ func (h *FileHandler) GetFile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(file)
 }
 
-// DownloadFile streams a file download
+// DownloadFile streams a file download with Range request support for video streaming
 func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	fileID := chi.URLParam(r, "id")
 	if fileID == "" {
@@ -207,24 +209,134 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Open file from storage
-	reader, err := h.storage.Retrieve(r.Context(), file.StoragePath)
+	// Get the full file path for Range request support
+	fullPath := h.storage.GetFullPath(file.StoragePath)
+
+	// Check if file exists and get file info
+	fileInfo, err := os.Stat(fullPath)
 	if err != nil {
-		h.logger.Error("Failed to retrieve file from storage", zap.Error(err), zap.String("path", file.StoragePath))
+		h.logger.Error("Failed to stat file", zap.Error(err), zap.String("path", fullPath))
 		http.Error(w, "file not found in storage", http.StatusNotFound)
 		return
 	}
-	defer reader.Close()
 
-	// Set headers for download
-	w.Header().Set("Content-Type", file.MimeType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+file.OriginalName+"\"")
-	w.Header().Set("Content-Length", strconv.FormatInt(file.SizeBytes, 10))
-
-	// Stream file to response
-	if _, err := io.Copy(w, reader); err != nil {
-		h.logger.Error("Failed to stream file", zap.Error(err))
+	// Open file
+	f, err := os.Open(fullPath)
+	if err != nil {
+		h.logger.Error("Failed to open file", zap.Error(err), zap.String("path", fullPath))
+		http.Error(w, "failed to open file", http.StatusInternalServerError)
+		return
 	}
+	defer f.Close()
+
+	// Set common headers
+	w.Header().Set("Content-Type", file.MimeType)
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Check for Range header (for video streaming/seeking)
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		// Parse Range header
+		start, end, err := parseRangeHeader(rangeHeader, fileInfo.Size())
+		if err != nil {
+			h.logger.Error("Invalid range header", zap.Error(err), zap.String("range", rangeHeader))
+			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+
+		// Seek to start position
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			h.logger.Error("Failed to seek file", zap.Error(err))
+			http.Error(w, "failed to seek", http.StatusInternalServerError)
+			return
+		}
+
+		// Calculate content length for this range
+		contentLength := end - start + 1
+
+		// Set headers for partial content
+		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileInfo.Size()))
+		w.WriteHeader(http.StatusPartialContent)
+
+		// Stream the requested range
+		if _, err := io.CopyN(w, f, contentLength); err != nil {
+			// Client might have closed the connection, don't log as error
+			if !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
+				h.logger.Error("Failed to stream file range", zap.Error(err))
+			}
+		}
+	} else {
+		// No Range header - serve the entire file
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+file.OriginalName+"\"")
+		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+
+		// Stream entire file
+		if _, err := io.Copy(w, f); err != nil {
+			if !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
+				h.logger.Error("Failed to stream file", zap.Error(err))
+			}
+		}
+	}
+}
+
+// parseRangeHeader parses the Range header and returns start and end byte positions
+func parseRangeHeader(rangeHeader string, fileSize int64) (int64, int64, error) {
+	// Range header format: "bytes=start-end" or "bytes=start-" or "bytes=-suffix"
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return 0, 0, fmt.Errorf("invalid range format")
+	}
+
+	rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+	parts := strings.Split(rangeSpec, "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid range format")
+	}
+
+	var start, end int64
+	var err error
+
+	if parts[0] == "" {
+		// Suffix range: "-500" means last 500 bytes
+		suffix, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid suffix range")
+		}
+		start = fileSize - suffix
+		if start < 0 {
+			start = 0
+		}
+		end = fileSize - 1
+	} else {
+		// Start is specified
+		start, err = strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid start range")
+		}
+
+		if parts[1] == "" {
+			// Open-ended range: "0-" means from start to end
+			end = fileSize - 1
+		} else {
+			end, err = strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				return 0, 0, fmt.Errorf("invalid end range")
+			}
+		}
+	}
+
+	// Validate range
+	if start < 0 || start >= fileSize || end < start || end >= fileSize {
+		// Adjust end if it exceeds file size
+		if end >= fileSize {
+			end = fileSize - 1
+		}
+		if start < 0 || start > end {
+			return 0, 0, fmt.Errorf("range not satisfiable")
+		}
+	}
+
+	return start, end, nil
 }
 
 // GetThumbnail returns a thumbnail for media files

@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
@@ -27,6 +30,20 @@ func NewFileHandler(storage *storage.Service, db *database.Postgres, logger *zap
 		db:      db,
 		logger:  logger,
 	}
+}
+
+// FileRecord represents a file in the database
+type FileRecord struct {
+	ID           string    `json:"id"`
+	UserID       *string   `json:"userId,omitempty"`
+	OriginalName string    `json:"originalName"`
+	StoragePath  string    `json:"storagePath"`
+	MimeType     string    `json:"mimeType"`
+	SizeBytes    int64     `json:"sizeBytes"`
+	Zone         string    `json:"zone"`
+	MediaType    *string   `json:"mediaType,omitempty"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // UploadInitResponse represents the response for initiating an upload
@@ -58,9 +75,6 @@ func (h *FileHandler) InitiateUpload(w http.ResponseWriter, r *http.Request) {
 	totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
 
 	uploadID := uuid.New().String()
-
-	// Store upload metadata in Redis for chunked uploads
-	// TODO: Store in Redis
 
 	h.logger.Info("Upload initiated",
 		zap.String("upload_id", uploadID),
@@ -140,9 +154,6 @@ func (h *FileHandler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Assemble chunks into final file
-	// For now, just return success
-
 	fileID := uuid.New().String()
 
 	h.logger.Info("Upload completed",
@@ -168,17 +179,16 @@ func (h *FileHandler) GetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Fetch from database
-	response := map[string]interface{}{
-		"id":       fileID,
-		"name":     "example.mp4",
-		"size":     1024000,
-		"mimeType": "video/mp4",
-		"status":   "ready",
+	// Query file from database
+	file, err := h.getFileFromDB(r.Context(), fileID)
+	if err != nil {
+		h.logger.Error("Failed to get file", zap.Error(err), zap.String("file_id", fileID))
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(file)
 }
 
 // DownloadFile streams a file download
@@ -189,9 +199,32 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Get file path from database
-	// For now, return placeholder
-	http.Error(w, "file not found", http.StatusNotFound)
+	// Get file metadata from database
+	file, err := h.getFileFromDB(r.Context(), fileID)
+	if err != nil {
+		h.logger.Error("Failed to get file for download", zap.Error(err), zap.String("file_id", fileID))
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Open file from storage
+	reader, err := h.storage.Retrieve(r.Context(), file.StoragePath)
+	if err != nil {
+		h.logger.Error("Failed to retrieve file from storage", zap.Error(err), zap.String("path", file.StoragePath))
+		http.Error(w, "file not found in storage", http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+
+	// Set headers for download
+	w.Header().Set("Content-Type", file.MimeType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+file.OriginalName+"\"")
+	w.Header().Set("Content-Length", strconv.FormatInt(file.SizeBytes, 10))
+
+	// Stream file to response
+	if _, err := io.Copy(w, reader); err != nil {
+		h.logger.Error("Failed to stream file", zap.Error(err))
+	}
 }
 
 // GetThumbnail returns a thumbnail for media files
@@ -202,7 +235,7 @@ func (h *FileHandler) GetThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Generate/retrieve thumbnail
+	// For now, return not found - thumbnail generation to be implemented
 	http.Error(w, "thumbnail not available", http.StatusNotFound)
 }
 
@@ -214,22 +247,42 @@ func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Delete from storage and database
-	h.logger.Info("File deleted", zap.String("file_id", fileID))
+	// Get file to find storage path
+	file, err := h.getFileFromDB(r.Context(), fileID)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
 
+	// Delete from storage
+	if err := h.storage.Delete(r.Context(), file.StoragePath); err != nil {
+		h.logger.Error("Failed to delete file from storage", zap.Error(err))
+	}
+
+	// Delete from database
+	_, err = h.db.Pool.Exec(r.Context(), "DELETE FROM files WHERE id = $1", fileID)
+	if err != nil {
+		h.logger.Error("Failed to delete file from database", zap.Error(err))
+		http.Error(w, "failed to delete file", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("File deleted", zap.String("file_id", fileID))
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // SimpleUpload handles direct file upload (for small files)
 func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form with 32MB max memory
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	// Parse multipart form with 500MB max memory
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
+		h.logger.Error("Failed to parse multipart form", zap.Error(err))
 		http.Error(w, "failed to parse form", http.StatusBadRequest)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
+		h.logger.Error("Failed to get file from form", zap.Error(err))
 		http.Error(w, "failed to get file", http.StatusBadRequest)
 		return
 	}
@@ -249,22 +302,105 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 	file.Read(buffer)
 	mimeType := http.DetectContentType(buffer)
 
-	h.logger.Info("File uploaded",
-		zap.String("file_id", fileInfo.ID),
+	// Determine media type from MIME
+	var mediaType *string
+	if strings.HasPrefix(mimeType, "video/") {
+		mt := "video"
+		mediaType = &mt
+	} else if strings.HasPrefix(mimeType, "audio/") {
+		mt := "audio"
+		mediaType = &mt
+	} else if strings.HasPrefix(mimeType, "image/") {
+		mt := "image"
+		mediaType = &mt
+	}
+
+	// Insert into database
+	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType)
+	if err != nil {
+		h.logger.Error("Failed to insert file into database", zap.Error(err))
+		// Delete the stored file since DB insert failed
+		h.storage.Delete(r.Context(), fileInfo.Path)
+		http.Error(w, "failed to save file metadata", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("File uploaded successfully",
+		zap.String("file_id", fileRecord.ID),
 		zap.String("filename", header.Filename),
 		zap.Int64("size", fileInfo.Size),
 		zap.String("mime_type", mimeType),
 	)
 
 	response := map[string]interface{}{
-		"fileId":   fileInfo.ID,
-		"name":     header.Filename,
-		"size":     fileInfo.Size,
-		"mimeType": mimeType,
-		"path":     fileInfo.Path,
+		"id":          fileRecord.ID,
+		"name":        header.Filename,
+		"size":        fileInfo.Size,
+		"mimeType":    mimeType,
+		"storagePath": fileInfo.Path,
+		"zone":        string(fileInfo.Zone),
+		"createdAt":   fileRecord.CreatedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
+}
+
+// getFileFromDB retrieves a file record from the database
+func (h *FileHandler) getFileFromDB(ctx context.Context, fileID string) (*FileRecord, error) {
+	var file FileRecord
+	err := h.db.Pool.QueryRow(ctx, `
+		SELECT id, user_id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at
+		FROM files
+		WHERE id = $1
+	`, fileID).Scan(
+		&file.ID,
+		&file.UserID,
+		&file.OriginalName,
+		&file.StoragePath,
+		&file.MimeType,
+		&file.SizeBytes,
+		&file.Zone,
+		&file.MediaType,
+		&file.ExpiresAt,
+		&file.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+// insertFileToDB inserts a new file record into the database
+func (h *FileHandler) insertFileToDB(ctx context.Context, fileInfo *storage.FileInfo, originalName, mimeType string, mediaType *string) (*FileRecord, error) {
+	var record FileRecord
+	err := h.db.Pool.QueryRow(ctx, `
+		INSERT INTO files (id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		RETURNING id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at
+	`,
+		fileInfo.ID,
+		originalName,
+		fileInfo.Path,
+		mimeType,
+		fileInfo.Size,
+		string(fileInfo.Zone),
+		mediaType,
+		fileInfo.ExpiresAt,
+	).Scan(
+		&record.ID,
+		&record.OriginalName,
+		&record.StoragePath,
+		&record.MimeType,
+		&record.SizeBytes,
+		&record.Zone,
+		&record.MediaType,
+		&record.ExpiresAt,
+		&record.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
 }

@@ -87,6 +87,13 @@ func main() {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
 
+	// Initialize queue client (for potential re-queuing)
+	queueClient := jobs.NewQueueClient(cfg.RedisURL, logger)
+	defer queueClient.Close()
+
+	// Initialize jobs module (without WebSocket hub - worker doesn't need it)
+	jobsModule := jobs.NewModule(db, redisClient, storageService, queueClient, nil, logger)
+
 	// Initialize media processor
 	mediaProcessor := media.NewProcessor(storageService, cfg.FFmpegPath, logger)
 	mediaAdapter := &mediaProcessorAdapter{processor: mediaProcessor}
@@ -97,6 +104,7 @@ func main() {
 		Redis:          redisClient,
 		Storage:        storageService,
 		MediaProcessor: mediaAdapter,
+		JobsModule:     jobsModule,
 		Logger:         logger,
 	})
 

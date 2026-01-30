@@ -38,6 +38,7 @@ The API will be available at `http://localhost:8080`
 ### Local Development
 
 1. **Install dependencies**
+
    ```bash
    # Install Go dependencies
    go mod download
@@ -47,18 +48,21 @@ The API will be available at `http://localhost:8080`
    ```
 
 2. **Start infrastructure**
+
    ```bash
    # Start PostgreSQL and Redis only
    docker compose up -d postgres redis
    ```
 
 3. **Configure environment**
+
    ```bash
    cp .env.example .env
    # Edit .env as needed
    ```
 
 4. **Run the server**
+
    ```bash
    make run-server
    ```
@@ -71,10 +75,12 @@ The API will be available at `http://localhost:8080`
 ## API Endpoints
 
 ### Health
+
 - `GET /api/v1/health` - Basic health check
 - `GET /api/v1/ready` - Readiness check with dependencies
 
 ### Files
+
 - `POST /api/v1/files/upload` - Initiate file upload
 - `POST /api/v1/files/upload/chunk` - Upload file chunk
 - `POST /api/v1/files/upload/complete` - Complete chunked upload
@@ -84,6 +90,7 @@ The API will be available at `http://localhost:8080`
 - `DELETE /api/v1/files/:id` - Delete file
 
 ### Media (FFmpeg)
+
 - `POST /api/v1/media/probe` - Extract media metadata
 - `GET /api/v1/media/presets` - List available presets
 - `GET /api/v1/media/presets/:id` - Get preset details
@@ -92,6 +99,7 @@ The API will be available at `http://localhost:8080`
 - `GET /api/v1/media/codecs` - List available codecs
 
 ### Jobs
+
 - `POST /api/v1/jobs` - Create new job
 - `GET /api/v1/jobs` - List user's jobs
 - `GET /api/v1/jobs/:id` - Get job details
@@ -100,11 +108,13 @@ The API will be available at `http://localhost:8080`
 - `GET /api/v1/jobs/:id/logs` - Get job logs
 
 ### WebSocket
+
 - `GET /api/v1/ws` - WebSocket connection for real-time updates
 
 ## Supported Operations
 
 ### Video
+
 - `trim` - Cut video segments (start/end time)
 - `resize` - Change resolution (width, height, maintain aspect)
 - `compress` - Reduce file size (quality 1-100 or target size)
@@ -117,6 +127,7 @@ The API will be available at `http://localhost:8080`
 - `extractAudio` - Extract audio track
 
 ### Audio
+
 - `convertFormat` - Change format (MP3, WAV, AAC, FLAC, OGG)
 - `changeBitrate` - Adjust audio bitrate
 - `adjustVolume` - Change volume level
@@ -125,6 +136,7 @@ The API will be available at `http://localhost:8080`
 - `merge` - Combine multiple audio files
 
 ### Image
+
 - `resize` - Change dimensions
 - `convertFormat` - Change format (PNG, JPG, WebP, GIF)
 - `compress` - Reduce file size
@@ -158,17 +170,17 @@ backend/
 
 ## Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `8080` |
-| `ENVIRONMENT` | Environment name | `development` |
-| `DATABASE_URL` | PostgreSQL connection string | - |
-| `REDIS_URL` | Redis address | `localhost:6379` |
-| `STORAGE_BACKEND` | Storage backend (local/s3) | `local` |
-| `FFMPEG_PATH` | Path to FFmpeg binary | `ffmpeg` |
-| `FFPROBE_PATH` | Path to FFprobe binary | `ffprobe` |
-| `WORKER_CONCURRENCY` | Worker concurrency | `2` |
-| `MAX_UPLOAD_SIZE` | Max upload size in bytes | `5GB` |
+| Variable             | Description                  | Default          |
+| -------------------- | ---------------------------- | ---------------- |
+| `PORT`               | Server port                  | `8080`           |
+| `ENVIRONMENT`        | Environment name             | `development`    |
+| `DATABASE_URL`       | PostgreSQL connection string | -                |
+| `REDIS_URL`          | Redis address                | `localhost:6379` |
+| `STORAGE_BACKEND`    | Storage backend (local/s3)   | `local`          |
+| `FFMPEG_PATH`        | Path to FFmpeg binary        | `ffmpeg`         |
+| `FFPROBE_PATH`       | Path to FFprobe binary       | `ffprobe`        |
+| `WORKER_CONCURRENCY` | Worker concurrency           | `2`              |
+| `MAX_UPLOAD_SIZE`    | Max upload size in bytes     | `5GB`            |
 
 ## License
 

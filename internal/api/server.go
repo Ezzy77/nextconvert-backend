@@ -90,6 +90,7 @@ func (s *Server) Router() *chi.Mux {
 		// File management
 		r.Route("/files", func(r chi.Router) {
 			r.Post("/upload", fileHandler.InitiateUpload)
+			r.Post("/upload/simple", fileHandler.SimpleUpload)
 			r.Post("/upload/chunk", fileHandler.UploadChunk)
 			r.Post("/upload/complete", fileHandler.CompleteUpload)
 			r.Get("/{id}", fileHandler.GetFile)

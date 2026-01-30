@@ -470,6 +470,84 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 				)
 				videoFilters = append(videoFilters, filter)
 			}
+
+		case "filters":
+			// Video filter adjustments using FFmpeg eq filter
+			brightness := getFloatParam(op.Params, "brightness", 0)  // -1 to 1 (0 = no change)
+			contrast := getFloatParam(op.Params, "contrast", 1)      // 0 to 2 (1 = no change)
+			saturation := getFloatParam(op.Params, "saturation", 1)  // 0 to 3 (1 = no change)
+			gamma := getFloatParam(op.Params, "gamma", 1)            // 0.1 to 10 (1 = no change)
+			hue := getFloatParam(op.Params, "hue", 0)                // -180 to 180 degrees (0 = no change)
+			blur := getFloatParam(op.Params, "blur", 0)              // 0 to 10 (0 = no blur)
+			sharpen := getFloatParam(op.Params, "sharpen", 0)        // 0 to 5 (0 = no sharpen)
+			vignette := getBoolParam(op.Params, "vignette", false)   // Add vignette effect
+			grayscale := getBoolParam(op.Params, "grayscale", false) // Convert to grayscale
+			sepia := getBoolParam(op.Params, "sepia", false)         // Apply sepia tone
+			negative := getBoolParam(op.Params, "negative", false)   // Invert colors
+
+			// Build eq filter for brightness, contrast, saturation, gamma
+			eqParts := []string{}
+			if brightness != 0 {
+				eqParts = append(eqParts, fmt.Sprintf("brightness=%.2f", brightness))
+			}
+			if contrast != 1 {
+				eqParts = append(eqParts, fmt.Sprintf("contrast=%.2f", contrast))
+			}
+			if saturation != 1 {
+				eqParts = append(eqParts, fmt.Sprintf("saturation=%.2f", saturation))
+			}
+			if gamma != 1 {
+				eqParts = append(eqParts, fmt.Sprintf("gamma=%.2f", gamma))
+			}
+			if len(eqParts) > 0 {
+				videoFilters = append(videoFilters, "eq="+strings.Join(eqParts, ":"))
+			}
+
+			// Hue adjustment
+			if hue != 0 {
+				videoFilters = append(videoFilters, fmt.Sprintf("hue=h=%.1f", hue))
+			}
+
+			// Blur effect (using boxblur)
+			if blur > 0 {
+				blurRadius := int(blur * 2) // Scale for more visible effect
+				if blurRadius < 1 {
+					blurRadius = 1
+				}
+				videoFilters = append(videoFilters, fmt.Sprintf("boxblur=%d:%d", blurRadius, blurRadius))
+			}
+
+			// Sharpen effect (using unsharp mask)
+			if sharpen > 0 {
+				// unsharp=lx:ly:la where l=luma, a=amount
+				amount := sharpen * 1.5 // Scale for better effect
+				videoFilters = append(videoFilters, fmt.Sprintf("unsharp=5:5:%.1f:5:5:0", amount))
+			}
+
+			// Vignette effect
+			if vignette {
+				videoFilters = append(videoFilters, "vignette=PI/4")
+			}
+
+			// Grayscale
+			if grayscale {
+				videoFilters = append(videoFilters, "colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3")
+			}
+
+			// Sepia tone (apply after grayscale-like transform)
+			if sepia {
+				videoFilters = append(videoFilters, "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131")
+			}
+
+			// Negative/Invert colors
+			if negative {
+				videoFilters = append(videoFilters, "negate")
+			}
+
+		case "split":
+			// Split is handled separately in processSplit method
+			// This case is here to avoid "unknown operation" errors
+			// The actual split logic extracts segments at specific times
 		}
 	}
 

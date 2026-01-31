@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/convert-studio/backend/internal/shared/database"
@@ -163,12 +164,43 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 	// Insert output file into database
 	outputFileID := payload.JobID // Use job ID as the output file ID for simplicity
 	outputFileName := filepath.Base(payload.OutputPath)
-	mimeType := "video/mp4" // Default, could detect based on extension
+	ext := strings.ToLower(filepath.Ext(payload.OutputPath))
+	mimeType := "video/mp4"
+	mediaType := "video"
+	switch ext {
+	case ".mp3":
+		mimeType = "audio/mpeg"
+		mediaType = "audio"
+	case ".wav":
+		mimeType = "audio/wav"
+		mediaType = "audio"
+	case ".aac":
+		mimeType = "audio/aac"
+		mediaType = "audio"
+	case ".ogg":
+		mimeType = "audio/ogg"
+		mediaType = "audio"
+	case ".flac":
+		mimeType = "audio/flac"
+		mediaType = "audio"
+	case ".m4a":
+		mimeType = "audio/mp4"
+		mediaType = "audio"
+	case ".gif":
+		mimeType = "image/gif"
+		mediaType = "image"
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+		mediaType = "image"
+	case ".png":
+		mimeType = "image/png"
+		mediaType = "image"
+	}
 
 	_, err = h.db.Pool.Exec(ctx, `
 		INSERT INTO files (id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-	`, outputFileID, outputFileName, payload.OutputPath, mimeType, outputInfo.Size(), "output", "video", time.Now().Add(7*24*time.Hour))
+	`, outputFileID, outputFileName, payload.OutputPath, mimeType, outputInfo.Size(), "output", mediaType, time.Now().Add(7*24*time.Hour))
 	if err != nil {
 		h.logger.Error("Failed to insert output file into database", zap.Error(err))
 		// Don't fail the job, the file exists

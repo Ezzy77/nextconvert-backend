@@ -754,6 +754,62 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 				// Peak normalization to 0dB
 				audioFilters = append(audioFilters, "acompressor=threshold=0.5:ratio=2:attack=5:release=50,volume=2dB")
 			}
+
+		case "noiseReduction":
+			// Noise reduction for video (hqdn3d) and/or audio (afftdn)
+			strength := getStringParam(op.Params, "strength", "medium") // low, medium, high
+			applyTo := getStringParam(op.Params, "applyTo", "both")     // both, video, audio
+
+			var afftdnNr float64
+			switch strength {
+			case "low":
+				afftdnNr = 8
+			case "high":
+				afftdnNr = 20
+			default:
+				afftdnNr = 12
+			}
+			if applyTo == "both" || applyTo == "audio" {
+				audioFilters = append(audioFilters, fmt.Sprintf("afftdn=nr=%.0f:nf=-40", afftdnNr))
+			}
+
+			var hqdn3dParams string
+			switch strength {
+			case "low":
+				hqdn3dParams = "2:2:3:2"
+			case "high":
+				hqdn3dParams = "8:6:12:9"
+			default:
+				hqdn3dParams = "4:4:6:4"
+			}
+			if applyTo == "both" || applyTo == "video" {
+				videoFilters = append(videoFilters, "hqdn3d="+hqdn3dParams)
+			}
+
+		case "convertAudioFormat":
+			args = append(args, "-vn")
+			format := getStringParam(op.Params, "format", "mp3")
+			bitrate := getIntParam(op.Params, "bitrate", 192000)
+
+			switch format {
+			case "mp3":
+				args = append(args, "-acodec", "libmp3lame")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			case "aac":
+				args = append(args, "-acodec", "aac")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			case "wav":
+				args = append(args, "-acodec", "pcm_s16le")
+			case "flac":
+				args = append(args, "-acodec", "flac")
+				args = append(args, "-compression_level", "5")
+			case "ogg":
+				args = append(args, "-acodec", "libvorbis")
+				args = append(args, "-b:a", fmt.Sprintf("%dk", bitrate/1000))
+			default:
+				args = append(args, "-acodec", "libmp3lame")
+				args = append(args, "-b:a", "192k")
+			}
 		}
 	}
 

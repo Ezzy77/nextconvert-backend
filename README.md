@@ -35,6 +35,15 @@ docker compose down
 
 The API will be available at `http://localhost:8080`
 
+### Using Supabase as Database
+
+See [COMMANDS.md](../COMMANDS.md#supabase-setup) for full instructions. Summary:
+
+1. Create a Supabase project and get the direct connection string
+2. Run migrations via SQL Editor or `./scripts/migrate-supabase.sh`
+3. Set `DATABASE_URL` in `.env` (include `?sslmode=require`)
+4. Start with: `docker compose -f docker-compose.supabase.yml up -d`
+
 ### Local Development
 
 1. **Install dependencies**
@@ -59,6 +68,7 @@ The API will be available at `http://localhost:8080`
    ```bash
    cp .env.example .env
    # Edit .env as needed
+   # For Supabase: set DATABASE_URL to your Supabase direct connection string (with sslmode=require)
    ```
 
 4. **Run the server**
@@ -170,17 +180,17 @@ backend/
 
 ## Configuration
 
-| Variable             | Description                  | Default          |
-| -------------------- | ---------------------------- | ---------------- |
-| `PORT`               | Server port                  | `8080`           |
-| `ENVIRONMENT`        | Environment name             | `development`    |
-| `DATABASE_URL`       | PostgreSQL connection string | -                |
-| `REDIS_URL`          | Redis address                | `localhost:6379` |
-| `STORAGE_BACKEND`    | Storage backend (local/s3)   | `local`          |
-| `FFMPEG_PATH`        | Path to FFmpeg binary        | `ffmpeg`         |
-| `FFPROBE_PATH`       | Path to FFprobe binary       | `ffprobe`        |
-| `WORKER_CONCURRENCY` | Worker concurrency           | `2`              |
-| `MAX_UPLOAD_SIZE`    | Max upload size in bytes     | `5GB`            |
+| Variable             | Description                                                                              | Default          |
+| -------------------- | ---------------------------------------------------------------------------------------- | ---------------- |
+| `PORT`               | Server port                                                                              | `8080`           |
+| `ENVIRONMENT`        | Environment name                                                                         | `development`    |
+| `DATABASE_URL`       | PostgreSQL connection string. For Supabase use direct connection with `?sslmode=require` | Local default    |
+| `REDIS_URL`          | Redis address                                                                            | `localhost:6379` |
+| `STORAGE_BACKEND`    | Storage backend (local/s3)                                                               | `local`          |
+| `FFMPEG_PATH`        | Path to FFmpeg binary                                                                    | `ffmpeg`         |
+| `FFPROBE_PATH`       | Path to FFprobe binary                                                                   | `ffprobe`        |
+| `WORKER_CONCURRENCY` | Worker concurrency                                                                       | `2`              |
+| `MAX_UPLOAD_SIZE`    | Max upload size in bytes                                                                 | `5GB`            |
 
 ## License
 

@@ -1,28 +1,10 @@
+# Supabase database - use when DATABASE_URL points to Supabase
+# Run: docker compose -f docker-compose.supabase.yml up -d
+# Requires DATABASE_URL in .env (Supabase direct connection string with sslmode=require)
+
 version: '3.8'
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: convert-studio-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: convert_studio
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - convert-studio-net
-
-  # Redis
   redis:
     image: redis:7-alpine
     container_name: convert-studio-redis
@@ -39,7 +21,6 @@ services:
     networks:
       - convert-studio-net
 
-  # API Server
   server:
     build:
       context: .
@@ -50,7 +31,7 @@ services:
     environment:
       - ENVIRONMENT=development
       - PORT=8080
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis:6379
       - STORAGE_BACKEND=local
       - STORAGE_BASE_PATH=/app/data
@@ -63,22 +44,21 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
       - convert-studio-net
 
-  # Worker
   worker:
     build:
       context: .
       target: worker
     container_name: convert-studio-worker
+    env_file:
+      - .env
     environment:
       - ENVIRONMENT=development
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis:6379
       - STORAGE_BACKEND=local
       - STORAGE_BASE_PATH=/app/data
@@ -89,8 +69,6 @@ services:
     volumes:
       - app_data:/app/data
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -102,7 +80,6 @@ services:
           memory: 2G
 
 volumes:
-  postgres_data:
   redis_data:
   app_data:
 

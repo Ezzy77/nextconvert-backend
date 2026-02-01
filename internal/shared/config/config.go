@@ -14,7 +14,9 @@ type Config struct {
 	Port        int
 	LogLevel    string
 
-	// Database
+	// Database: PostgreSQL connection string.
+	// Local: postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable
+	// Supabase (direct): postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 	DatabaseURL string
 	RedisURL    string
 

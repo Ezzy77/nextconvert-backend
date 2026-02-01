@@ -19,9 +19,9 @@ func NewPostgres(connString string) (*Postgres, error) {
 		return nil, err
 	}
 
-	// Configure pool
-	config.MaxConns = 25
-	config.MinConns = 5
+	// Configure pool (conservative for Supabase free tier; safe for local too)
+	config.MaxConns = 10
+	config.MinConns = 2
 	config.MaxConnLifetime = time.Hour
 	config.MaxConnIdleTime = 30 * time.Minute
 	config.HealthCheckPeriod = time.Minute

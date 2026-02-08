@@ -40,17 +40,31 @@ type Config struct {
 	// Limits
 	MaxUploadSize  int64
 	MaxJobsPerUser int
+
+	// Stripe
+	StripeSecretKey       string
+	StripeWebhookSecret   string
+	StripeBasicPriceID    string
+	StripeStandardPriceID string
+	StripeProPriceID      string
+	StripeSuccessURL      string
+	StripeCancelURL       string
 }
 
 // StorageConfig holds storage-specific configuration
 type StorageConfig struct {
-	Backend     string // local, s3, gcs
+	Backend     string // local, s3, supabase
 	BasePath    string
 	S3Endpoint  string
 	S3Bucket    string
 	S3AccessKey string
 	S3SecretKey string
 	S3Region    string
+	// Supabase Storage (backend=supabase)
+	SupabaseURL        string // https://PROJECT_REF.supabase.co
+	SupabaseServiceKey string // service_role key for server-side ops (bypasses RLS)
+	SupabaseBucket     string // bucket name (default: media)
+	SupabaseTimeout    int    // HTTP timeout in seconds (default: 900 = 15 min for large uploads)
 }
 
 // Load reads configuration from environment variables
@@ -74,14 +88,25 @@ func Load() (*Config, error) {
 		AllowedOrigins:      []string{getEnv("ALLOWED_ORIGINS", "http://localhost:5173")},
 		MaxUploadSize:       getEnvInt64("MAX_UPLOAD_SIZE", 5*1024*1024*1024), // 5GB
 		MaxJobsPerUser:      getEnvInt("MAX_JOBS_PER_USER", 20),
+		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripeBasicPriceID:  getEnv("STRIPE_BASIC_PRICE_ID", ""),
+		StripeStandardPriceID: getEnv("STRIPE_STANDARD_PRICE_ID", ""),
+		StripeProPriceID:    getEnv("STRIPE_PRO_PRICE_ID", ""),
+		StripeSuccessURL:    getEnv("STRIPE_SUCCESS_URL", "http://localhost:5173/pricing?success=true"),
+		StripeCancelURL:     getEnv("STRIPE_CANCEL_URL", "http://localhost:5173/pricing"),
 		Storage: StorageConfig{
-			Backend:     getEnv("STORAGE_BACKEND", "local"),
-			BasePath:    getEnv("STORAGE_BASE_PATH", "./data"),
-			S3Endpoint:  getEnv("S3_ENDPOINT", ""),
-			S3Bucket:    getEnv("S3_BUCKET", ""),
-			S3AccessKey: getEnv("S3_ACCESS_KEY", ""),
-			S3SecretKey: getEnv("S3_SECRET_KEY", ""),
-			S3Region:    getEnv("S3_REGION", "us-east-1"),
+			Backend:            getEnv("STORAGE_BACKEND", "local"),
+			BasePath:           getEnv("STORAGE_BASE_PATH", "./data"),
+			S3Endpoint:         getEnv("S3_ENDPOINT", ""),
+			S3Bucket:           getEnv("S3_BUCKET", ""),
+			S3AccessKey:        getEnv("S3_ACCESS_KEY", ""),
+			S3SecretKey:        getEnv("S3_SECRET_KEY", ""),
+			S3Region:           getEnv("S3_REGION", "us-east-1"),
+			SupabaseURL:        getEnv("SUPABASE_URL", ""),
+			SupabaseServiceKey: getEnv("SUPABASE_SERVICE_ROLE_KEY", ""),
+			SupabaseBucket:     getEnv("SUPABASE_STORAGE_BUCKET", "media"),
+			SupabaseTimeout:    getEnvInt("SUPABASE_STORAGE_TIMEOUT", 900),
 		},
 	}
 

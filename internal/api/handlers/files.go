@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/convert-studio/backend/internal/api/middleware"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
 	"github.com/go-chi/chi/v5"
@@ -21,16 +22,18 @@ import (
 
 // FileHandler handles file operations
 type FileHandler struct {
-	storage *storage.Service
-	db      *database.Postgres
-	logger  *zap.Logger
+	storage   *storage.Service
+	db        *database.Postgres
+	subSvc    *subscription.Service
+	logger    *zap.Logger
 }
 
 // NewFileHandler creates a new file handler
-func NewFileHandler(storage *storage.Service, db *database.Postgres, logger *zap.Logger) *FileHandler {
+func NewFileHandler(storage *storage.Service, db *database.Postgres, subSvc *subscription.Service, logger *zap.Logger) *FileHandler {
 	return &FileHandler{
 		storage: storage,
 		db:      db,
+		subSvc:  subSvc,
 		logger:  logger,
 	}
 }
@@ -71,6 +74,20 @@ func (h *FileHandler) InitiateUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "invalid file size", http.StatusBadRequest)
 		return
+	}
+
+	// Check tier-based file size limit
+	user := middleware.GetUser(r.Context())
+	userID := "anonymous"
+	if user != nil {
+		userID = user.ID
+	}
+	if h.subSvc != nil {
+		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", fileSize); err != nil {
+			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", fileSize), zap.Error(err))
+			http.Error(w, "file size exceeds your plan limit", http.StatusForbidden)
+			return
+		}
 	}
 
 	// For files under 10MB, use simple upload
@@ -210,73 +227,55 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the full file path for Range request support
-	fullPath := h.storage.GetFullPath(file.StoragePath)
-
-	// Check if file exists and get file info
-	fileInfo, err := os.Stat(fullPath)
+	// Retrieve file from storage (works for both local and remote/Supabase)
+	reader, err := h.storage.Retrieve(r.Context(), file.StoragePath)
 	if err != nil {
-		h.logger.Error("Failed to stat file", zap.Error(err), zap.String("path", fullPath))
+		h.logger.Error("Failed to retrieve file from storage", zap.Error(err), zap.String("path", file.StoragePath))
 		http.Error(w, "file not found in storage", http.StatusNotFound)
 		return
 	}
+	defer reader.Close()
 
-	// Open file
-	f, err := os.Open(fullPath)
-	if err != nil {
-		h.logger.Error("Failed to open file", zap.Error(err), zap.String("path", fullPath))
-		http.Error(w, "failed to open file", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
+	fileSize := file.SizeBytes
 
 	// Set common headers
 	w.Header().Set("Content-Type", file.MimeType)
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// Check for Range header (for video streaming/seeking)
+	// For local storage, support Range requests for video streaming
+	// For remote (Supabase), stream full file
 	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		// Parse Range header
-		start, end, err := parseRangeHeader(rangeHeader, fileInfo.Size())
-		if err != nil {
-			h.logger.Error("Invalid range header", zap.Error(err), zap.String("range", rangeHeader))
-			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
-			return
-		}
-
-		// Seek to start position
-		if _, err := f.Seek(start, io.SeekStart); err != nil {
-			h.logger.Error("Failed to seek file", zap.Error(err))
-			http.Error(w, "failed to seek", http.StatusInternalServerError)
-			return
-		}
-
-		// Calculate content length for this range
-		contentLength := end - start + 1
-
-		// Set headers for partial content
-		w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileInfo.Size()))
-		w.WriteHeader(http.StatusPartialContent)
-
-		// Stream the requested range
-		if _, err := io.CopyN(w, f, contentLength); err != nil {
-			// Client might have closed the connection, don't log as error
-			if !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
+	if rangeHeader != "" && !h.storage.IsRemote() {
+		f, ok := reader.(*os.File)
+		if ok {
+			start, end, parseErr := parseRangeHeader(rangeHeader, fileSize)
+			if parseErr != nil {
+				http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if _, seekErr := f.Seek(start, io.SeekStart); seekErr != nil {
+				http.Error(w, "failed to seek", http.StatusInternalServerError)
+				return
+			}
+			contentLength := end - start + 1
+			w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+			w.WriteHeader(http.StatusPartialContent)
+			if _, err := io.CopyN(w, reader, contentLength); err != nil && !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
 				h.logger.Error("Failed to stream file range", zap.Error(err))
 			}
+			return
 		}
-	} else {
-		// No Range header - serve the entire file
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+file.OriginalName+"\"")
-		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	}
 
-		// Stream entire file
-		if _, err := io.Copy(w, f); err != nil {
-			if !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
-				h.logger.Error("Failed to stream file", zap.Error(err))
-			}
+	// Stream entire file
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+file.OriginalName+"\"")
+	if fileSize > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		if !strings.Contains(err.Error(), "broken pipe") && !strings.Contains(err.Error(), "connection reset") {
+			h.logger.Error("Failed to stream file", zap.Error(err))
 		}
 	}
 }
@@ -476,6 +475,20 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Check tier-based file size limit
+	user := middleware.GetUser(r.Context())
+	userID := "anonymous"
+	if user != nil {
+		userID = user.ID
+	}
+	if h.subSvc != nil {
+		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", header.Size); err != nil {
+			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", header.Size), zap.Error(err))
+			http.Error(w, "file size exceeds your plan limit", http.StatusForbidden)
+			return
+		}
+	}
+
 	// Store the file
 	fileInfo, err := h.storage.Store(r.Context(), storage.ZoneUpload, header.Filename, file)
 	if err != nil {
@@ -504,14 +517,13 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user ID for ownership
-	user := middleware.GetUser(r.Context())
-	var userID *string
+	var userIDPtr *string
 	if user != nil && user.ID != "anonymous" {
-		userID = &user.ID
+		userIDPtr = &user.ID
 	}
 
 	// Insert into database
-	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType, userID)
+	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType, userIDPtr)
 	if err != nil {
 		h.logger.Error("Failed to insert file into database", zap.Error(err))
 		// Delete the stored file since DB insert failed

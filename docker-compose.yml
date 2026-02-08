@@ -52,8 +52,11 @@ services:
       - PORT=8080
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
       - REDIS_URL=redis:6379
-      - STORAGE_BACKEND=local
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
       - STORAGE_BASE_PATH=/app/data
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-media}
       - FFMPEG_PATH=/usr/bin/ffmpeg
       - FFPROBE_PATH=/usr/bin/ffprobe
       - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
@@ -76,12 +79,17 @@ services:
       context: .
       target: worker
     container_name: convert-studio-worker
+    env_file:
+      - .env
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
       - REDIS_URL=redis:6379
-      - STORAGE_BACKEND=local
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
       - STORAGE_BASE_PATH=/app/data
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-media}
       - FFMPEG_PATH=/usr/bin/ffmpeg
       - FFPROBE_PATH=/usr/bin/ffprobe
       - WORKER_CONCURRENCY=2

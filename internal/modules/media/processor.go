@@ -33,11 +33,12 @@ type ProcessorConfig struct {
 
 // ProcessOptions contains options for media processing
 type ProcessOptions struct {
-	InputPath  string
-	InputPaths []string // For merge operations with multiple inputs
-	OutputPath string
-	Operations []Operation
-	OnProgress func(percent int, operation string)
+	InputPath         string
+	InputPaths        []string // For merge operations with multiple inputs
+	OutputPath        string
+	Operations        []Operation
+	OnProgress        func(percent int, operation string)
+	UseHardwareAccel  *bool    // Override processor default (e.g. for Pro tier)
 }
 
 // NewProcessor creates a new media processor with cloud-friendly defaults
@@ -68,6 +69,14 @@ func NewProcessorWithConfig(storage *storage.Service, config ProcessorConfig, lo
 		useHardwareAccel:  config.UseHardwareAccel,
 		preferFastPresets: config.PreferFastPresets,
 	}
+}
+
+// useHWAccel returns effective hardware acceleration setting (opts override or processor default)
+func (p *Processor) useHWAccel(opts *ProcessOptions) bool {
+	if opts != nil && opts.UseHardwareAccel != nil {
+		return *opts.UseHardwareAccel
+	}
+	return p.useHardwareAccel
 }
 
 // Process executes media operations
@@ -113,17 +122,19 @@ func (p *Processor) Process(ctx context.Context, opts ProcessOptions) error {
 // processMerge handles video merging using FFmpeg concat demuxer
 // MergeOptions contains options for merging videos
 type MergeOptions struct {
-	InputPaths []string
-	OutputPath string
-	OnProgress func(percent int, operation string)
+	InputPaths        []string
+	OutputPath        string
+	OnProgress        func(percent int, operation string)
+	UseHardwareAccel  *bool
 }
 
 // ProcessMerge merges multiple videos into one (public interface method)
 func (p *Processor) ProcessMerge(ctx context.Context, opts MergeOptions) error {
 	return p.processMerge(ctx, ProcessOptions{
-		InputPaths: opts.InputPaths,
-		OutputPath: opts.OutputPath,
-		OnProgress: opts.OnProgress,
+		InputPaths:       opts.InputPaths,
+		OutputPath:       opts.OutputPath,
+		OnProgress:       opts.OnProgress,
+		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }
 
@@ -195,7 +206,7 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 		preset = "veryfast"
 	}
 
-	if p.useHardwareAccel {
+	if p.useHWAccel(&opts) {
 		args = append(args, "-c:v", "h264_videotoolbox", "-b:v", "5M")
 	} else {
 		args = append(args, "-c:v", "libx264", "-preset", preset, "-crf", "23")
@@ -282,7 +293,7 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			crf := 51 - (quality * 51 / 100)
 			args = append(args, "-crf", strconv.Itoa(crf))
 			// Add codec with fast preset for compression
-			if p.useHardwareAccel {
+			if p.useHWAccel(&opts) {
 				// Try macOS VideoToolbox hardware encoder (very fast, low CPU)
 				args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
 			} else {
@@ -294,7 +305,7 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			if targetFormat, ok := op.Params["targetFormat"].(string); ok {
 				switch targetFormat {
 				case "mp4", "mov":
-					if p.useHardwareAccel {
+					if p.useHWAccel(&opts) {
 						// macOS VideoToolbox - hardware H.264 encoder (minimal CPU usage)
 						args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
 					} else {
@@ -308,7 +319,7 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 					// MPEG-4 for AVI format
 					args = append(args, "-c:v", "mpeg4", "-c:a", "mp3")
 				case "mkv":
-					if p.useHardwareAccel {
+					if p.useHWAccel(&opts) {
 						args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
 					} else {
 						args = append(args, "-c:v", "libx264", "-preset", preset, "-c:a", "aac")
@@ -318,13 +329,13 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 				// Backward compatibility: handle codec param directly
 				switch codec {
 				case "h264":
-					if p.useHardwareAccel {
+					if p.useHWAccel(&opts) {
 						args = append(args, "-c:v", "h264_videotoolbox")
 					} else {
 						args = append(args, "-c:v", "libx264", "-preset", preset)
 					}
 				case "h265":
-					if p.useHardwareAccel {
+					if p.useHWAccel(&opts) {
 						// macOS VideoToolbox HEVC encoder
 						args = append(args, "-c:v", "hevc_videotoolbox")
 					} else {
@@ -835,7 +846,7 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 
 	// If no video codec was specified, add optimized default
 	if !hasVideoCodec && len(videoFilters) > 0 {
-		if p.useHardwareAccel {
+		if p.useHWAccel(&opts) {
 			args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
 		} else {
 			preset := "medium"

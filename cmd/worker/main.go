@@ -9,6 +9,7 @@ import (
 
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/convert-studio/backend/internal/shared/config"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/logging"
@@ -38,18 +39,20 @@ func (a *mediaProcessorAdapter) Process(ctx context.Context, opts jobs.MediaProc
 	}
 
 	return a.processor.Process(ctx, media.ProcessOptions{
-		InputPath:  opts.InputPath,
-		OutputPath: opts.OutputPath,
-		Operations: operations,
-		OnProgress: opts.OnProgress,
+		InputPath:        opts.InputPath,
+		OutputPath:       opts.OutputPath,
+		Operations:       operations,
+		OnProgress:       opts.OnProgress,
+		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }
 
 func (a *mediaProcessorAdapter) ProcessMerge(ctx context.Context, opts jobs.MergeProcessOptions) error {
 	return a.processor.ProcessMerge(ctx, media.MergeOptions{
-		InputPaths: opts.InputPaths,
-		OutputPath: opts.OutputPath,
-		OnProgress: opts.OnProgress,
+		InputPaths:       opts.InputPaths,
+		OutputPath:       opts.OutputPath,
+		OnProgress:       opts.OnProgress,
+		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }
 
@@ -106,8 +109,11 @@ func main() {
 	queueClient := jobs.NewQueueClient(cfg.RedisURL, logger)
 	defer queueClient.Close()
 
+	// Initialize subscription service (for recording conversion minutes on job complete)
+	subscriptionSvc := subscription.NewService(db)
+
 	// Initialize jobs module (without WebSocket hub - worker doesn't need it)
-	jobsModule := jobs.NewModule(db, redisClient, storageService, queueClient, nil, logger)
+	jobsModule := jobs.NewModule(db, redisClient, storageService, queueClient, nil, subscriptionSvc, logger)
 
 	// Initialize media processor with CPU-friendly settings
 	mediaProcessor := media.NewProcessorWithConfig(storageService, media.ProcessorConfig{
@@ -158,6 +164,18 @@ func main() {
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(jobs.TypeMediaProcess, jobHandler.HandleMediaProcess)
 	mux.HandleFunc(jobs.TypeCleanupFiles, jobHandler.HandleCleanupFiles)
+
+	// Start cleanup scheduler (hourly - deletes files past 24h expiry)
+	scheduler, err := queueClient.ScheduleCleanup(cfg.RedisURL)
+	if err != nil {
+		logger.Fatal("Failed to create cleanup scheduler", zap.Error(err))
+	}
+	go func() {
+		logger.Info("Cleanup scheduler started (runs hourly)")
+		if err := scheduler.Run(); err != nil {
+			logger.Error("Cleanup scheduler failed", zap.Error(err))
+		}
+	}()
 
 	// Start worker
 	go func() {

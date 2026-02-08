@@ -6,6 +6,7 @@ import (
 	"github.com/convert-studio/backend/internal/api/websocket"
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/convert-studio/backend/internal/shared/config"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
@@ -17,39 +18,42 @@ import (
 
 // ServerConfig holds dependencies for the API server
 type ServerConfig struct {
-	Config      *config.Config
-	Logger      *zap.Logger
-	DB          *database.Postgres
-	Redis       *database.Redis
-	Storage     *storage.Service
-	WSHub       *websocket.Hub
-	MediaModule *media.Module
-	JobsModule  *jobs.Module
+	Config           *config.Config
+	Logger           *zap.Logger
+	DB               *database.Postgres
+	Redis            *database.Redis
+	Storage          *storage.Service
+	WSHub            *websocket.Hub
+	MediaModule      *media.Module
+	JobsModule       *jobs.Module
+	SubscriptionSvc  *subscription.Service
 }
 
 // Server represents the API server
 type Server struct {
-	config      *config.Config
-	logger      *zap.Logger
-	db          *database.Postgres
-	redis       *database.Redis
-	storage     *storage.Service
-	wsHub       *websocket.Hub
-	mediaModule *media.Module
-	jobsModule  *jobs.Module
+	config          *config.Config
+	logger          *zap.Logger
+	db              *database.Postgres
+	redis           *database.Redis
+	storage         *storage.Service
+	wsHub           *websocket.Hub
+	mediaModule     *media.Module
+	jobsModule      *jobs.Module
+	subscriptionSvc *subscription.Service
 }
 
 // NewServer creates a new API server
 func NewServer(cfg ServerConfig) *Server {
 	return &Server{
-		config:      cfg.Config,
-		logger:      cfg.Logger,
-		db:          cfg.DB,
-		redis:       cfg.Redis,
-		storage:     cfg.Storage,
-		wsHub:       cfg.WSHub,
-		mediaModule: cfg.MediaModule,
-		jobsModule:  cfg.JobsModule,
+		config:          cfg.Config,
+		logger:          cfg.Logger,
+		db:              cfg.DB,
+		redis:           cfg.Redis,
+		storage:         cfg.Storage,
+		wsHub:           cfg.WSHub,
+		mediaModule:     cfg.MediaModule,
+		jobsModule:      cfg.JobsModule,
+		subscriptionSvc: cfg.SubscriptionSvc,
 	}
 }
 
@@ -74,22 +78,33 @@ func (s *Server) Router() *chi.Mux {
 		MaxAge:           300,
 	}))
 
-	// Create Clerk auth middleware
-	clerkAuth := middleware.NewClerkAuthMiddleware(s.config.ClerkSecretKey)
+	// Create Clerk auth middleware (subscription service provides tier lookup)
+	clerkAuth := middleware.NewClerkAuthMiddleware(s.config.ClerkSecretKey, s.subscriptionSvc)
 
 	// Create handlers
 	healthHandler := handlers.NewHealthHandler(s.db, s.redis)
-	fileHandler := handlers.NewFileHandler(s.storage, s.db, s.logger)
+	fileHandler := handlers.NewFileHandler(s.storage, s.db, s.subscriptionSvc, s.logger)
 	mediaHandler := handlers.NewMediaHandler(s.mediaModule, s.logger)
 	jobHandler := handlers.NewJobHandler(s.jobsModule, s.logger)
 	presetsHandler := handlers.NewPresetsHandler(s.db, s.logger)
 	wsHandler := handlers.NewWebSocketHandler(s.wsHub, s.logger)
+
+	priceIDs := map[string]string{
+		"basic":    s.config.StripeBasicPriceID,
+		"standard": s.config.StripeStandardPriceID,
+		"pro":      s.config.StripeProPriceID,
+	}
+	stripeHandler := handlers.NewStripeHandler(s.subscriptionSvc, s.config.StripeSecretKey, s.config.StripeWebhookSecret, priceIDs, s.config.StripeSuccessURL, s.config.StripeCancelURL, s.logger)
+	subscriptionHandler := handlers.NewSubscriptionHandler(s.subscriptionSvc, stripeHandler, s.logger)
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Health check (public)
 		r.Get("/health", healthHandler.Health)
 		r.Get("/ready", healthHandler.Ready)
+
+		// Stripe webhook (no auth - verified by signature)
+		r.Post("/webhooks/stripe", stripeHandler.HandleWebhook)
 
 		// Protected routes - apply Clerk auth middleware
 		r.Group(func(r chi.Router) {
@@ -138,6 +153,13 @@ func (s *Server) Router() *chi.Mux {
 
 			// WebSocket
 			r.Get("/ws", wsHandler.HandleConnection)
+
+			// Subscription
+			r.Route("/subscription", func(r chi.Router) {
+				r.Get("/me", subscriptionHandler.GetMe)
+				r.Post("/checkout", subscriptionHandler.CreateCheckout)
+				r.Post("/portal", subscriptionHandler.CreatePortal)
+			})
 		})
 	})
 

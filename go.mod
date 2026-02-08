@@ -28,6 +28,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
+	github.com/stripe/stripe-go/v81 v81.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect

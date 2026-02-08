@@ -41,6 +41,7 @@ type MediaProcessPayload struct {
 	InputPaths []string    `json:"inputPaths,omitempty"` // For merge operations
 	OutputPath string      `json:"outputPath"`
 	Operations []Operation `json:"operations"`
+	UseGPU     bool        `json:"useGpu,omitempty"` // Pro tier: enable hardware acceleration
 }
 
 // CleanupPayload contains file cleanup task data
@@ -103,33 +104,17 @@ func (q *QueueClient) EnqueueCleanup(payload CleanupPayload) (*asynq.TaskInfo, e
 	return q.client.Enqueue(task, opts...)
 }
 
-// ScheduleCleanup schedules periodic cleanup
-func (q *QueueClient) ScheduleCleanup() error {
+// ScheduleCleanup schedules periodic cleanup - runs hourly, permanently deletes files past 24h expiry
+func (q *QueueClient) ScheduleCleanup(redisAddr string) (*asynq.Scheduler, error) {
 	scheduler := asynq.NewScheduler(
-		asynq.RedisClientOpt{Addr: "localhost:6379"},
-		nil,
+		asynq.RedisClientOpt{Addr: redisAddr},
+		&asynq.SchedulerOpts{},
 	)
 
-	// Schedule upload zone cleanup (24h old files)
-	uploadPayload, _ := json.Marshal(CleanupPayload{
-		Zone:      "upload",
-		OlderThan: time.Now().Add(-24 * time.Hour).Unix(),
-	})
-	scheduler.Register("@hourly", asynq.NewTask(TypeCleanupFiles, uploadPayload))
+	payload, _ := json.Marshal(CleanupPayload{Zone: "all"})
+	if _, err := scheduler.Register("@hourly", asynq.NewTask(TypeCleanupFiles, payload)); err != nil {
+		return nil, err
+	}
 
-	// Schedule working zone cleanup (4h old files)
-	workingPayload, _ := json.Marshal(CleanupPayload{
-		Zone:      "working",
-		OlderThan: time.Now().Add(-4 * time.Hour).Unix(),
-	})
-	scheduler.Register("@every 30m", asynq.NewTask(TypeCleanupFiles, workingPayload))
-
-	// Schedule output zone cleanup (7 days old files)
-	outputPayload, _ := json.Marshal(CleanupPayload{
-		Zone:      "output",
-		OlderThan: time.Now().Add(-168 * time.Hour).Unix(),
-	})
-	scheduler.Register("@daily", asynq.NewTask(TypeCleanupFiles, outputPayload))
-
-	return scheduler.Start()
+	return scheduler, nil
 }

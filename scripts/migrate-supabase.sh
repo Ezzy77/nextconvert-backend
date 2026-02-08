@@ -29,7 +29,7 @@ if ! command -v psql &> /dev/null; then
 fi
 
 echo "Running migrations from $MIGRATIONS_DIR..."
-for f in "$MIGRATIONS_DIR"/init.sql "$MIGRATIONS_DIR"/002_clerk_user_id.sql; do
+for f in "$MIGRATIONS_DIR"/init.sql "$MIGRATIONS_DIR"/002_clerk_user_id.sql "$MIGRATIONS_DIR"/003_subscriptions.sql; do
   if [ -f "$f" ]; then
     echo "Applying $(basename "$f")..."
     psql "$DATABASE_URL" -f "$f" -v ON_ERROR_STOP=1

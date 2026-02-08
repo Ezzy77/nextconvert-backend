@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/convert-studio/backend/internal/api/websocket"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/storage"
 	"github.com/google/uuid"
@@ -66,33 +67,37 @@ type JobError struct {
 
 // CreateJobParams contains parameters for creating a job
 type CreateJobParams struct {
-	UserID         string
-	InputFileID    string
-	InputFileIDs   []string // For merge operations (multiple files)
-	Operations     []Operation
-	OutputFormat   string
-	OutputFileName string
+	UserID                string
+	InputFileID           string
+	InputFileIDs          []string // For merge operations (multiple files)
+	Operations            []Operation
+	OutputFormat          string
+	OutputFileName        string
+	InputDurationSeconds  float64 // From probe, for conversion minutes
+	ConversionMinutes     int     // ceil(duration/60), or 1 for audio/image
 }
 
 // Module handles job management
 type Module struct {
-	db      *database.Postgres
-	redis   *database.Redis
-	storage *storage.Service
-	queue   *QueueClient
-	wsHub   *websocket.Hub
-	logger  *zap.Logger
-	jobs    map[string]*Job // In-memory cache (also stored in DB)
+	db        *database.Postgres
+	redis     *database.Redis
+	storage   *storage.Service
+	queue     *QueueClient
+	wsHub     *websocket.Hub
+	subSvc    *subscription.Service
+	logger    *zap.Logger
+	jobs      map[string]*Job // In-memory cache (also stored in DB)
 }
 
 // NewModule creates a new jobs module
-func NewModule(db *database.Postgres, redis *database.Redis, storage *storage.Service, queue *QueueClient, wsHub *websocket.Hub, logger *zap.Logger) *Module {
+func NewModule(db *database.Postgres, redis *database.Redis, storage *storage.Service, queue *QueueClient, wsHub *websocket.Hub, subSvc *subscription.Service, logger *zap.Logger) *Module {
 	return &Module{
 		db:      db,
 		redis:   redis,
 		storage: storage,
 		queue:   queue,
 		wsHub:   wsHub,
+		subSvc:  subSvc,
 		logger:  logger,
 		jobs:    make(map[string]*Job),
 	}
@@ -100,6 +105,17 @@ func NewModule(db *database.Postgres, redis *database.Redis, storage *storage.Se
 
 // CreateJob creates a new media processing job
 func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, error) {
+	// Check conversion minutes limit before creating job
+	if m.subSvc != nil && params.UserID != "" {
+		convMin := params.ConversionMinutes
+		if convMin <= 0 {
+			convMin = 1 // Default 1 min for unknown/audio/image
+		}
+		if err := m.subSvc.CheckLimit(ctx, params.UserID, "conversion_minutes", int64(convMin)); err != nil {
+			return nil, fmt.Errorf("conversion minutes limit exceeded: %w", err)
+		}
+	}
+
 	// Check if this is a merge operation (multiple input files)
 	isMerge := len(params.InputFileIDs) > 1
 
@@ -170,11 +186,29 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	jobID := uuid.New().String()
 	now := time.Now()
 
+	convMin := params.ConversionMinutes
+	if convMin <= 0 {
+		convMin = 1
+	}
+	priority := 5
+	queuePriority := "default"
+	if m.subSvc != nil && params.UserID != "" {
+		limits := subscription.GetTierLimits(m.subSvc.GetTier(ctx, params.UserID))
+		switch limits.Priority {
+		case "critical":
+			priority = 1
+			queuePriority = "critical"
+		case "high":
+			priority = 3
+			queuePriority = "high"
+		}
+	}
+
 	job := &Job{
 		ID:             jobID,
 		UserID:         params.UserID,
 		Status:         StatusQueued,
-		Priority:       5,
+		Priority:       priority,
 		InputFileID:    params.InputFileID,
 		InputFilePath:  inputFilePath,
 		Operations:     params.Operations,
@@ -189,9 +223,9 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	progressJSON, _ := json.Marshal(job.Progress)
 
 	_, err := m.db.Pool.Exec(ctx, `
-		INSERT INTO jobs (id, user_id, status, priority, input_file_id, output_format, output_file_name, operations, progress, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, jobID, nullString(params.UserID), job.Status, job.Priority, params.InputFileID, params.OutputFormat, outputFileName, operationsJSON, progressJSON, now)
+		INSERT INTO jobs (id, user_id, status, priority, input_file_id, output_format, output_file_name, operations, progress, input_duration_seconds, conversion_minutes, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, jobID, nullString(params.UserID), job.Status, priority, params.InputFileID, params.OutputFormat, outputFileName, operationsJSON, progressJSON, params.InputDurationSeconds, convMin, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert job: %w", err)
 	}
@@ -203,18 +237,24 @@ func (m *Module) CreateJob(ctx context.Context, params CreateJobParams) (*Job, e
 	outputPath := m.storage.GetPath(storage.ZoneOutput, fmt.Sprintf("%s.%s", jobID, params.OutputFormat))
 
 	// Enqueue to Asynq
+	useGPU := false
+	if m.subSvc != nil && params.UserID != "" {
+		limits := subscription.GetTierLimits(m.subSvc.GetTier(ctx, params.UserID))
+		useGPU = limits.UseGPUEncoding
+	}
 	payload := MediaProcessPayload{
 		JobID:      jobID,
 		InputPath:  inputFilePath,
 		OutputPath: outputPath,
 		Operations: params.Operations,
+		UseGPU:     useGPU,
 	}
 	// Add multiple input paths for merge
 	if isMerge {
 		payload.InputPaths = inputFilePaths
 	}
 
-	_, err = m.queue.EnqueueMediaProcess(payload, "default")
+	_, err = m.queue.EnqueueMediaProcess(payload, queuePriority)
 	if err != nil {
 		// Update job status to failed
 		m.db.Pool.Exec(ctx, "UPDATE jobs SET status = $1 WHERE id = $2", StatusFailed, jobID)
@@ -407,6 +447,16 @@ func (m *Module) UpdateProgress(ctx context.Context, jobID string, percent int, 
 
 // CompleteJob marks a job as completed
 func (m *Module) CompleteJob(ctx context.Context, jobID, outputFileID string) error {
+	// Get user_id and conversion_minutes for usage recording
+	var jobUserID *string
+	var convMin int
+	m.db.Pool.QueryRow(ctx, `SELECT user_id, COALESCE(conversion_minutes, 0) FROM jobs WHERE id = $1`, jobID).Scan(&jobUserID, &convMin)
+	if m.subSvc != nil && jobUserID != nil && *jobUserID != "" && *jobUserID != "anonymous" && convMin > 0 {
+		if err := m.subSvc.RecordConversionMinutes(ctx, *jobUserID, convMin); err != nil {
+			m.logger.Warn("Failed to record conversion minutes", zap.Error(err), zap.String("user_id", *jobUserID))
+		}
+	}
+
 	now := time.Now()
 	progress := Progress{Percent: 100}
 	progressJSON, _ := json.Marshal(progress)

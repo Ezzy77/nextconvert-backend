@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/convert-studio/backend/internal/shared/config"
@@ -37,6 +38,7 @@ type FileInfo struct {
 type Service struct {
 	backend  Backend
 	basePath string
+	isRemote bool
 }
 
 // Backend defines the storage backend interface
@@ -57,6 +59,8 @@ func NewService(cfg config.StorageConfig) (*Service, error) {
 	switch cfg.Backend {
 	case "local":
 		backend, err = NewLocalBackend(cfg.BasePath)
+	case "supabase":
+		backend, err = NewSupabaseBackend(cfg)
 	case "s3":
 		backend, err = NewS3Backend(cfg)
 	default:
@@ -70,6 +74,7 @@ func NewService(cfg config.StorageConfig) (*Service, error) {
 	return &Service{
 		backend:  backend,
 		basePath: cfg.BasePath,
+		isRemote: cfg.Backend == "supabase" || cfg.Backend == "s3",
 	}, nil
 }
 
@@ -89,16 +94,8 @@ func (s *Service) Store(ctx context.Context, zone Zone, originalName string, rea
 		return nil, fmt.Errorf("failed to get file size: %w", err)
 	}
 
-	// Calculate expiration based on zone
-	var expiresAt time.Time
-	switch zone {
-	case ZoneUpload:
-		expiresAt = time.Now().Add(24 * time.Hour)
-	case ZoneWorking:
-		expiresAt = time.Now().Add(4 * time.Hour)
-	case ZoneOutput:
-		expiresAt = time.Now().Add(7 * 24 * time.Hour)
-	}
+	// All files expire after 24 hours for security and privacy
+	expiresAt := time.Now().Add(24 * time.Hour)
 
 	return &FileInfo{
 		ID:        fileID,
@@ -152,17 +149,75 @@ func (s *Service) Move(ctx context.Context, srcPath string, destZone Zone, destN
 	return info, nil
 }
 
-// GetPath returns the full path for a file in a zone
+// GetPath returns the path for a file in a zone
+// For local: full filesystem path. For Supabase: object key (zone/filename)
 func (s *Service) GetPath(zone Zone, filename string) string {
+	if s.isRemote {
+		return filepath.Join(string(zone), filename)
+	}
 	return filepath.Join(s.basePath, string(zone), filename)
 }
 
-// GetFullPath returns the absolute filesystem path for a storage path
-// For local storage, this is the path as stored
-// For S3 or other backends, this may need to download to a temp location
+// GetFullPath returns the path for local/FFmpeg access
 func (s *Service) GetFullPath(storagePath string) string {
-	// For local backend, the storage path is already the full path
 	return storagePath
+}
+
+// IsRemote returns true if the storage backend is remote (Supabase, S3)
+func (s *Service) IsRemote() bool {
+	return s.isRemote
+}
+
+// PrepareInputForProcessing downloads remote input to temp for FFmpeg.
+// For local backend, returns path as-is and no-op cleanup.
+func (s *Service) PrepareInputForProcessing(ctx context.Context, storagePath string) (localPath string, cleanup func(), err error) {
+	if !s.isRemote {
+		return storagePath, func() {}, nil
+	}
+	reader, err := s.backend.Retrieve(ctx, storagePath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer reader.Close()
+
+	tmpFile, err := os.CreateTemp("", "conv-*"+filepath.Ext(storagePath))
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := io.Copy(tmpFile, reader); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", nil, err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", nil, err
+	}
+	return tmpFile.Name(), func() { os.Remove(tmpFile.Name()) }, nil
+}
+
+// FinalizeOutputFromLocal uploads local file to remote at storagePath.
+// For local backend, no-op (file already at storagePath).
+func (s *Service) FinalizeOutputFromLocal(ctx context.Context, storagePath, localPath string) error {
+	if !s.isRemote {
+		return nil
+	}
+	f, err := os.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Parse storagePath as zone/filename for remote
+	parts := strings.SplitN(storagePath, "/", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid storage path: %s", storagePath)
+	}
+	zone := Zone(parts[0])
+	filename := parts[1]
+
+	_, err = s.backend.Store(ctx, zone, filename, f)
+	return err
 }
 
 // LocalBackend implements local filesystem storage

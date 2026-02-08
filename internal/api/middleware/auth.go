@@ -26,17 +26,24 @@ type User struct {
 	Tier      string
 }
 
+// TierLookup resolves user tier from storage (e.g. user_profiles)
+type TierLookup interface {
+	GetTier(ctx context.Context, userID string) string
+}
+
 // ClerkAuthMiddleware handles Clerk authentication
 type ClerkAuthMiddleware struct {
-	secretKey string
+	secretKey   string
+	tierLookup  TierLookup
 }
 
 // NewClerkAuthMiddleware creates a new Clerk auth middleware instance
-func NewClerkAuthMiddleware(secretKey string) *ClerkAuthMiddleware {
+func NewClerkAuthMiddleware(secretKey string, tierLookup TierLookup) *ClerkAuthMiddleware {
 	// Initialize Clerk SDK
 	clerk.SetKey(secretKey)
 	return &ClerkAuthMiddleware{
-		secretKey: secretKey,
+		secretKey:  secretKey,
+		tierLookup: tierLookup,
 	}
 }
 
@@ -95,9 +102,13 @@ func (m *ClerkAuthMiddleware) Handler(next http.Handler) http.Handler {
 			}
 		}
 
-		// Default tier is "free"
-		// To implement tiers, store them in Clerk's user metadata or your database
+		// Resolve tier from user_profiles
 		tier := "free"
+		if m.tierLookup != nil {
+			if t := m.tierLookup.GetTier(r.Context(), userID); t != "" {
+				tier = t
+			}
+		}
 
 		// Set user in context
 		ctx := context.WithValue(r.Context(), UserContextKey, &User{

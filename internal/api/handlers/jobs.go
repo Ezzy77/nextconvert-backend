@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/convert-studio/backend/internal/api/middleware"
 	"github.com/convert-studio/backend/internal/modules/jobs"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -26,11 +28,12 @@ func NewJobHandler(module *jobs.Module, logger *zap.Logger) *JobHandler {
 
 // CreateJobRequest represents a job creation request
 type CreateJobRequest struct {
-	InputFileID    string           `json:"inputFileId"`
-	InputFileIDs   []string         `json:"inputFileIds,omitempty"` // For merge operations
-	Operations     []jobs.Operation `json:"operations"`
-	OutputFormat   string           `json:"outputFormat"`
-	OutputFileName string           `json:"outputFileName"`
+	InputFileID           string           `json:"inputFileId"`
+	InputFileIDs          []string         `json:"inputFileIds,omitempty"` // For merge operations
+	Operations            []jobs.Operation `json:"operations"`
+	OutputFormat          string           `json:"outputFormat"`
+	OutputFileName        string           `json:"outputFileName"`
+	InputDurationSeconds  float64          `json:"inputDurationSeconds"`  // From probe, for conversion minutes
 }
 
 // CreateJob creates a new media processing job
@@ -53,15 +56,31 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		inputFileID = req.InputFileIDs[0]
 	}
 
+	convMin := subscription.ConversionMinutesFromDuration(req.InputDurationSeconds)
+
 	job, err := h.module.CreateJob(r.Context(), jobs.CreateJobParams{
-		UserID:         userID,
-		InputFileID:    inputFileID,
-		InputFileIDs:   req.InputFileIDs,
-		Operations:     req.Operations,
-		OutputFormat:   req.OutputFormat,
-		OutputFileName: req.OutputFileName,
+		UserID:               userID,
+		InputFileID:          inputFileID,
+		InputFileIDs:         req.InputFileIDs,
+		Operations:           req.Operations,
+		OutputFormat:         req.OutputFormat,
+		OutputFileName:       req.OutputFileName,
+		InputDurationSeconds: req.InputDurationSeconds,
+		ConversionMinutes:    convMin,
 	})
 	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "conversion minutes limit") || strings.Contains(errStr, "file size") || strings.Contains(errStr, "exceeds limit") {
+			h.logger.Warn("Job creation limit exceeded", zap.Error(err))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   errStr,
+				"code":    "LIMIT_EXCEEDED",
+				"message": errStr,
+			})
+			return
+		}
 		h.logger.Error("Failed to create job", zap.Error(err))
 		http.Error(w, "failed to create job", http.StatusInternalServerError)
 		return

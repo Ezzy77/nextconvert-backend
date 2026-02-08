@@ -13,6 +13,7 @@ import (
 	"github.com/convert-studio/backend/internal/api/websocket"
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
+	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/convert-studio/backend/internal/shared/config"
 	"github.com/convert-studio/backend/internal/shared/database"
 	"github.com/convert-studio/backend/internal/shared/logging"
@@ -75,19 +76,21 @@ func main() {
 	jobQueue := jobs.NewQueueClient(cfg.RedisURL, logger)
 
 	// Initialize modules
+	subscriptionSvc := subscription.NewService(db)
 	mediaModule := media.NewModule(db, storageService, jobQueue, logger)
-	jobsModule := jobs.NewModule(db, redisClient, storageService, jobQueue, wsHub, logger)
+	jobsModule := jobs.NewModule(db, redisClient, storageService, jobQueue, wsHub, subscriptionSvc, logger)
 
 	// Create API server
 	server := api.NewServer(api.ServerConfig{
-		Config:      cfg,
-		Logger:      logger,
-		DB:          db,
-		Redis:       redisClient,
-		Storage:     storageService,
-		WSHub:       wsHub,
-		MediaModule: mediaModule,
-		JobsModule:  jobsModule,
+		Config:          cfg,
+		Logger:          logger,
+		DB:              db,
+		Redis:           redisClient,
+		Storage:         storageService,
+		WSHub:           wsHub,
+		MediaModule:     mediaModule,
+		JobsModule:      jobsModule,
+		SubscriptionSvc: subscriptionSvc,
 	})
 
 	// Create HTTP server

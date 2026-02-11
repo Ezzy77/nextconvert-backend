@@ -7,25 +7,25 @@ version: '3.8'
 services:
   redis:
     image: redis:7-alpine
-    container_name: convert-studio-redis
+    container_name: NextConvert-redis
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - convert-studio-net
+      - NextConvert-net
 
   server:
     build:
       context: .
       target: server
-    container_name: convert-studio-server
+    container_name: NextConvert-server
     env_file:
       - .env
     environment:
@@ -47,13 +47,13 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - convert-studio-net
+      - NextConvert-net
 
   worker:
     build:
       context: .
       target: worker
-    container_name: convert-studio-worker
+    container_name: NextConvert-worker
     env_file:
       - .env
     environment:
@@ -72,7 +72,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - convert-studio-net
+      - NextConvert-net
     deploy:
       replicas: 1
       resources:
@@ -83,6 +83,7 @@ volumes:
   redis_data:
   app_data:
 
+
 networks:
-  convert-studio-net:
+  NextConvert-net:
     driver: bridge

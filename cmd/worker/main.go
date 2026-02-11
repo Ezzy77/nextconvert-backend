@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"strings"
+
 	"github.com/convert-studio/backend/internal/modules/jobs"
 	"github.com/convert-studio/backend/internal/modules/media"
 	"github.com/convert-studio/backend/internal/modules/subscription"
@@ -142,8 +144,19 @@ func main() {
 	})
 
 	// Configure Asynq server
+	var redisOpt asynq.RedisConnOpt
+	if strings.HasPrefix(cfg.RedisURL, "redis://") || strings.HasPrefix(cfg.RedisURL, "rediss://") {
+		opt, err := asynq.ParseRedisURI(cfg.RedisURL)
+		if err != nil {
+			logger.Fatal("Failed to parse Redis URI", zap.Error(err))
+		}
+		redisOpt = opt
+	} else {
+		redisOpt = asynq.RedisClientOpt{Addr: cfg.RedisURL}
+	}
+
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: cfg.RedisURL},
+		redisOpt,
 		asynq.Config{
 			Concurrency: cfg.WorkerConcurrency,
 			Queues: map[string]int{

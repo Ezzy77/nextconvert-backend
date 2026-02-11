@@ -4,7 +4,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: convert-studio-postgres
+    container_name: NextConvert-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -15,40 +15,41 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - convert-studio-net
+      - NextConvert-net
 
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: convert-studio-redis
+    container_name: NextConvert-redis
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - convert-studio-net
+      - NextConvert-net
 
   # API Server
   server:
     build:
       context: .
       target: server
-    container_name: convert-studio-server
+    platform: linux/amd64
+    container_name: NextConvert-server
     env_file:
-      - .env
+      - .env.prod
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=production
       - PORT=8080
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
       - REDIS_URL=redis:6379
@@ -71,14 +72,15 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - convert-studio-net
+      - NextConvert-net
 
   # Worker
   worker:
     build:
       context: .
       target: worker
-    container_name: convert-studio-worker
+    platform: linux/amd64
+    container_name: NextConvert-worker
     env_file:
       - .env
     environment:
@@ -102,7 +104,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - convert-studio-net
+      - NextConvert-net
     deploy:
       replicas: 1
       resources:
@@ -114,6 +116,7 @@ volumes:
   redis_data:
   app_data:
 
+
 networks:
-  convert-studio-net:
+  NextConvert-net:
     driver: bridge

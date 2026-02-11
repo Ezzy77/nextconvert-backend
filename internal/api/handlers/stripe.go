@@ -3,15 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/convert-studio/backend/internal/modules/subscription"
 	"github.com/stripe/stripe-go/v81"
+	portalsession "github.com/stripe/stripe-go/v81/billingportal/session"
 	"github.com/stripe/stripe-go/v81/checkout/session"
 	"github.com/stripe/stripe-go/v81/customer"
-	portalsession "github.com/stripe/stripe-go/v81/billingportal/session"
 	stripesub "github.com/stripe/stripe-go/v81/subscription"
 	"github.com/stripe/stripe-go/v81/webhook"
 	"go.uber.org/zap"
@@ -19,25 +20,25 @@ import (
 
 // StripeHandler handles Stripe checkout and webhooks
 type StripeHandler struct {
-	subService   *subscription.Service
-	secretKey    string
+	subService    *subscription.Service
+	secretKey     string
 	webhookSecret string
-	priceIDs     map[string]string
-	successURL   string
-	cancelURL    string
-	logger       *zap.Logger
+	priceIDs      map[string]string
+	successURL    string
+	cancelURL     string
+	logger        *zap.Logger
 }
 
 // NewStripeHandler creates a new Stripe handler
 func NewStripeHandler(subService *subscription.Service, secretKey, webhookSecret string, priceIDs map[string]string, successURL, cancelURL string, logger *zap.Logger) *StripeHandler {
 	return &StripeHandler{
-		subService:     subService,
-		secretKey:      secretKey,
-		webhookSecret:  webhookSecret,
-		priceIDs:       priceIDs,
-		successURL:     successURL,
-		cancelURL:      cancelURL,
-		logger:         logger,
+		subService:    subService,
+		secretKey:     secretKey,
+		webhookSecret: webhookSecret,
+		priceIDs:      priceIDs,
+		successURL:    successURL,
+		cancelURL:     cancelURL,
+		logger:        logger,
 	}
 }
 
@@ -73,6 +74,25 @@ func (h *StripeHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
 		http.Error(w, "user not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user already has an active subscription for this tier
+	hasActiveSub, err := h.subService.HasActiveSubscription(r.Context(), userID, req.Tier)
+	if err != nil {
+		h.logger.Error("Failed to check active subscription", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if hasActiveSub {
+		h.logger.Info("User attempted to subscribe to tier they already have",
+			zap.String("user_id", userID),
+			zap.String("tier", req.Tier))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("You already have an active %s subscription", req.Tier),
+		})
 		return
 	}
 
@@ -194,7 +214,14 @@ func (h *StripeHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, err := webhook.ConstructEvent(body, r.Header.Get("Stripe-Signature"), h.webhookSecret)
+	event, err := webhook.ConstructEventWithOptions(
+		body,
+		r.Header.Get("Stripe-Signature"),
+		h.webhookSecret,
+		webhook.ConstructEventOptions{
+			IgnoreAPIVersionMismatch: true, // Allow Stripe CLI with different API versions
+		},
+	)
 	if err != nil {
 		h.logger.Error("Webhook signature verification failed", zap.Error(err))
 		http.Error(w, "invalid signature", http.StatusBadRequest)

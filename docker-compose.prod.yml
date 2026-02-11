@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  server:
+    image: ${REGISTRY:-ghcr.io}/convert-studio/server:${IMAGE_TAG:-latest}
+    container_name: convert-studio-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.prod
+    environment:
+      - ENV=production
+    volumes:
+      - ./data/upload:/app/data/upload
+      - ./data/working:/app/data/working
+      - ./data/output:/app/data/output
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: ${REGISTRY:-ghcr.io}/convert-studio/worker:${IMAGE_TAG:-latest}
+    container_name: convert-studio-worker
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      - ENV=production
+    volumes:
+      - ./data/upload:/app/data/upload
+      - ./data/working:/app/data/working
+      - ./data/output:/app/data/output
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: convert-studio-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  default:
+    name: convert-studio-network

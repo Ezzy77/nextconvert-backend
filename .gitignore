@@ -26,10 +26,14 @@ go.work
 *.swo
 *~
 
-# Environment
+# Environment (keep .env.example and .env.prod.example for documentation)
 .env
+.env.dev
+.env.prod
 .env.local
 .env.*.local
+.last_backup
+backups/
 
 # Data
 data/

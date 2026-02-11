@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"strings"
+
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
@@ -22,7 +24,19 @@ type QueueClient struct {
 
 // NewQueueClient creates a new queue client
 func NewQueueClient(redisAddr string, logger *zap.Logger) *QueueClient {
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+	var opts asynq.RedisConnOpt
+	var err error
+
+	if strings.HasPrefix(redisAddr, "redis://") || strings.HasPrefix(redisAddr, "rediss://") {
+		opts, err = asynq.ParseRedisURI(redisAddr)
+		if err != nil {
+			logger.Fatal("Failed to parse Redis URI", zap.Error(err))
+		}
+	} else {
+		opts = asynq.RedisClientOpt{Addr: redisAddr}
+	}
+
+	client := asynq.NewClient(opts)
 	return &QueueClient{
 		client: client,
 		logger: logger,
@@ -106,8 +120,20 @@ func (q *QueueClient) EnqueueCleanup(payload CleanupPayload) (*asynq.TaskInfo, e
 
 // ScheduleCleanup schedules periodic cleanup - runs hourly, permanently deletes files past 24h expiry
 func (q *QueueClient) ScheduleCleanup(redisAddr string) (*asynq.Scheduler, error) {
+	var opts asynq.RedisConnOpt
+	var err error
+
+	if strings.HasPrefix(redisAddr, "redis://") || strings.HasPrefix(redisAddr, "rediss://") {
+		opts, err = asynq.ParseRedisURI(redisAddr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		opts = asynq.RedisClientOpt{Addr: redisAddr}
+	}
+
 	scheduler := asynq.NewScheduler(
-		asynq.RedisClientOpt{Addr: redisAddr},
+		opts,
 		&asynq.SchedulerOpts{},
 	)
 

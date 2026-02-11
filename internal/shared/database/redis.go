@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,17 +14,29 @@ type Redis struct {
 }
 
 // NewRedis creates a new Redis client
-func NewRedis(addr string) (*Redis, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:         addr,
-		Password:     "", // no password by default
-		DB:           0,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-		PoolSize:     10,
-		MinIdleConns: 5,
-	})
+func NewRedis(connectionString string) (*Redis, error) {
+	var opt *redis.Options
+	var err error
+
+	if strings.HasPrefix(connectionString, "redis://") || strings.HasPrefix(connectionString, "rediss://") {
+		opt, err = redis.ParseURL(connectionString)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		opt = &redis.Options{
+			Addr: connectionString,
+		}
+	}
+
+	// Set defaults
+	opt.DialTimeout = 5 * time.Second
+	opt.ReadTimeout = 3 * time.Second
+	opt.WriteTimeout = 3 * time.Second
+	opt.PoolSize = 10
+	opt.MinIdleConns = 5
+
+	client := redis.NewClient(opt)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

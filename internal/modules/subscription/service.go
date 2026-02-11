@@ -39,8 +39,8 @@ func (s *Service) GetOrCreateUserProfile(ctx context.Context, userID string) (*U
 	}
 	// Create profile if not exists
 	_, err = s.db.Pool.Exec(ctx, `
-		INSERT INTO user_profiles (user_id, tier)
-		VALUES ($1, 'free')
+		INSERT INTO user_profiles (user_id, tier, usage_period_start, conversion_minutes_used)
+		VALUES ($1, 'free', date_trunc('month', NOW()), 0)
 		ON CONFLICT (user_id) DO NOTHING
 	`, userID)
 	if err != nil {
@@ -57,7 +57,7 @@ func (s *Service) GetUserSubscription(ctx context.Context, userID string) (*User
 	var stripeCustomerID *string
 
 	err := s.db.Pool.QueryRow(ctx, `
-		SELECT tier, conversion_minutes_used, usage_period_start, stripe_customer_id
+		SELECT tier, conversion_minutes_used, COALESCE(usage_period_start, date_trunc('month', NOW())), stripe_customer_id
 		FROM user_profiles
 		WHERE user_id = $1
 	`, userID).Scan(&tier, &convUsed, &periodStart, &stripeCustomerID)
@@ -205,6 +205,22 @@ func (s *Service) SetFreeTier(ctx context.Context, userID string) error {
 			updated_at = NOW()
 	`, userID)
 	return err
+}
+
+// HasActiveSubscription checks if a user already has an active subscription for a specific tier
+func (s *Service) HasActiveSubscription(ctx context.Context, userID, tier string) (bool, error) {
+	var count int
+	err := s.db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM subscriptions
+		WHERE user_id = $1 
+		  AND tier = $2 
+		  AND status IN ('active', 'trialing')
+	`, userID, tier).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // GetTier returns the user's tier (for auth middleware). Returns "free" if not found.

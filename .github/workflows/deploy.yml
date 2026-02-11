@@ -64,6 +64,7 @@ jobs:
           context: .
           target: server
           push: true
+          no-cache: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_name_server }}:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_name_server }}:${{ steps.meta.outputs.sha_short }}
@@ -76,6 +77,7 @@ jobs:
           context: .
           target: worker
           push: true
+          no-cache: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_name_worker }}:${{ steps.meta.outputs.version }}
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_name_worker }}:${{ steps.meta.outputs.sha_short }}

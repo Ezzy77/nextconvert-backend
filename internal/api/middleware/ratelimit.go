@@ -3,8 +3,10 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -104,6 +106,38 @@ func (rl *RateLimiter) checkLimit(ctx context.Context, key string, config RateLi
 	
 	allowed := count <= config.Requests
 	return allowed, remaining, resetTime, nil
+}
+
+// GetRealIP extracts the real client IP address from the request
+// It checks proxy headers in order: X-Forwarded-For, X-Real-IP, RemoteAddr
+func GetRealIP(r *http.Request) string {
+	// Check X-Forwarded-For header (can contain multiple IPs)
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		// X-Forwarded-For can be: "client, proxy1, proxy2"
+		// We want the first (original client) IP
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			clientIP := strings.TrimSpace(ips[0])
+			if clientIP != "" {
+				return clientIP
+			}
+		}
+	}
+	
+	// Check X-Real-IP header
+	xri := r.Header.Get("X-Real-IP")
+	if xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	
+	// Fall back to RemoteAddr (format: "IP:port")
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr doesn't have a port, use as-is
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 // Common key functions

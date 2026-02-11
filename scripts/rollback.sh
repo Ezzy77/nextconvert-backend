@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rollback Convert Studio deployment
+# Rollback NextConvert deployment
 
 set -e
 
@@ -86,7 +86,7 @@ restore_database() {
     
     if [ -f "$BACKUP_DIR/database.sql" ]; then
         # Add database restore command
-        # Example: psql -h localhost -U postgres convert_studio < "$BACKUP_DIR/database.sql"
+        # Example: psql -h localhost -U postgres nextconvert < "$BACKUP_DIR/database.sql"
         log_info "Database restore skipped (implement if needed)"
     else
         log_warn "No database backup found"

@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   server:
-    image: ${REGISTRY:-ghcr.io}/convert-studio/server:${IMAGE_TAG:-latest}
-    container_name: convert-studio-server
+    image: ${REGISTRY:-ghcr.io}/nextconvert/server:${IMAGE_TAG:-latest}
+    container_name: nextconvert-server
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -30,8 +30,8 @@ services:
         max-file: "3"
 
   worker:
-    image: ${REGISTRY:-ghcr.io}/convert-studio/worker:${IMAGE_TAG:-latest}
-    container_name: convert-studio-worker
+    image: ${REGISTRY:-ghcr.io}/nextconvert/worker:${IMAGE_TAG:-latest}
+    container_name: nextconvert-worker
     restart: unless-stopped
     env_file:
       - .env.prod
@@ -55,7 +55,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: convert-studio-redis
+    container_name: nextconvert-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -79,4 +79,4 @@ volumes:
 
 networks:
   default:
-    name: convert-studio-network
+    name: nextconvert-network

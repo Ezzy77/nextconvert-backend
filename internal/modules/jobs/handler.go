@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/convert-studio/backend/internal/shared/database"
-	"github.com/convert-studio/backend/internal/shared/storage"
+	"github.com/nextconvert/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/shared/storage"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )

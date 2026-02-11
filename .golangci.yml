@@ -13,7 +13,7 @@ linters-settings:
   lll:
     line-length: 140
   goimports:
-    local-prefixes: github.com/convert-studio/backend
+    local-prefixes: github.com/nextconvert/backend
 
 linters:
   disable-all: true

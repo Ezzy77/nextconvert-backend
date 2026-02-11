@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/convert-studio/backend/internal/modules/media"
+	"github.com/nextconvert/backend/internal/modules/media"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )

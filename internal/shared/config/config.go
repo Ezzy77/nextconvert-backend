@@ -15,7 +15,7 @@ type Config struct {
 	LogLevel    string
 
 	// Database: PostgreSQL connection string.
-	// Local: postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable
+	// Local: postgres://postgres:postgres@localhost:5432/nextconvert?sslmode=disable
 	// Supabase (direct): postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 	DatabaseURL string
 	RedisURL    string
@@ -76,7 +76,7 @@ func Load() (*Config, error) {
 		Environment:         getEnv("ENVIRONMENT", "development"),
 		Port:                getEnvInt("PORT", 8080),
 		LogLevel:            getEnv("LOG_LEVEL", "info"),
-		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/convert_studio?sslmode=disable"),
+		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/nextconvert?sslmode=disable"),
 		RedisURL:            getEnv("REDIS_URL", "localhost:6379"),
 		FFmpegPath:          getEnv("FFMPEG_PATH", "ffmpeg"),
 		FFprobePath:         getEnv("FFPROBE_PATH", "ffprobe"),

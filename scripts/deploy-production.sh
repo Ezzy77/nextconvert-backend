@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy Convert Studio to Production Environment
+# Deploy NextConvert to Production Environment
 
 set -e
 
@@ -10,7 +10,7 @@ echo "========================================="
 # Configuration
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 IMAGE_TAG="${IMAGE_TAG:-v1.0.0}"
-PRODUCTION_HOST="${PRODUCTION_HOST:-convertstudio.example.com}"
+PRODUCTION_HOST="${PRODUCTION_HOST:-nextconvert.example.com}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -88,7 +88,7 @@ create_backup() {
     # Backup database
     log_info "Backing up database..."
     # Add database backup command here
-    # Example: pg_dump -h localhost -U postgres convert_studio > "$BACKUP_DIR/database.sql"
+    # Example: pg_dump -h localhost -U postgres nextconvert > "$BACKUP_DIR/database.sql"
     
     # Backup configuration
     log_info "Backing up configuration..."

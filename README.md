@@ -1,4 +1,4 @@
-# Convert Studio Backend
+# NextConvert Backend
 
 A powerful media conversion API built with Go, wrapping FFmpeg for video, audio, and image processing.
 

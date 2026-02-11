@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy Convert Studio to Staging Environment
+# Deploy NextConvert to Staging Environment
 
 set -e
 
@@ -10,7 +10,7 @@ echo "========================================="
 # Configuration
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-STAGING_HOST="${STAGING_HOST:-staging.convertstudio.example.com}"
+STAGING_HOST="${STAGING_HOST:-staging.nextconvert.example.com}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -131,7 +131,7 @@ main() {
     echo ""
     
     # Save current tag for rollback
-    PREVIOUS_TAG=$(docker inspect --format='{{.Config.Image}}' convert-studio-server 2>/dev/null | cut -d':' -f2 || echo "stable")
+    PREVIOUS_TAG=$(docker inspect --format='{{.Config.Image}}' nextconvert-server 2>/dev/null | cut -d':' -f2 || echo "stable")
     
     check_prerequisites || exit 1
     echo ""

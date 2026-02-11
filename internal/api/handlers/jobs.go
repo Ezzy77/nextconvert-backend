@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/convert-studio/backend/internal/api/middleware"
-	"github.com/convert-studio/backend/internal/modules/jobs"
-	"github.com/convert-studio/backend/internal/modules/subscription"
+	"github.com/nextconvert/backend/internal/api/middleware"
+	"github.com/nextconvert/backend/internal/modules/jobs"
+	"github.com/nextconvert/backend/internal/modules/subscription"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )

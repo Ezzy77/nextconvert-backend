@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/convert-studio/backend/internal/shared/config"
+	"github.com/nextconvert/backend/internal/shared/config"
 	"github.com/google/uuid"
 )
 

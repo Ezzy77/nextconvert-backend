@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke tests for Convert Studio API
+# Smoke tests for NextConvert API
 
 set -e
 

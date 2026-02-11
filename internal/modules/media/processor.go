@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/convert-studio/backend/internal/shared/storage"
+	"github.com/nextconvert/backend/internal/shared/storage"
 	"go.uber.org/zap"
 )
 

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/convert-studio/backend/internal/api/middleware"
-	"github.com/convert-studio/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/api/middleware"
+	"github.com/nextconvert/backend/internal/shared/database"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"

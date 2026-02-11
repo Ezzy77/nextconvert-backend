@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/convert-studio/backend/internal/modules/subscription"
+	"github.com/nextconvert/backend/internal/modules/subscription"
 	"github.com/stripe/stripe-go/v81"
 	portalsession "github.com/stripe/stripe-go/v81/billingportal/session"
 	"github.com/stripe/stripe-go/v81/checkout/session"

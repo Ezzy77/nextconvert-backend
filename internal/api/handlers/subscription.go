@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/convert-studio/backend/internal/api/middleware"
-	"github.com/convert-studio/backend/internal/modules/subscription"
+	"github.com/nextconvert/backend/internal/api/middleware"
+	"github.com/nextconvert/backend/internal/modules/subscription"
 	"go.uber.org/zap"
 )
 

@@ -1,7 +1,7 @@
 .PHONY: build run test clean docker-build docker-up docker-down migrate
 
 # Build variables
-BINARY_NAME=convert-studio
+BINARY_NAME=nextconvert
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS=-ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"

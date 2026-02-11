@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/convert-studio/backend/internal/shared/metrics"
+	"github.com/nextconvert/backend/internal/shared/metrics"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code and size

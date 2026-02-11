@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/convert-studio/backend/internal/api/websocket"
+	"github.com/nextconvert/backend/internal/api/websocket"
 	"go.uber.org/zap"
 )
 

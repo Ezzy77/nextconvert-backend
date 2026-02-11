@@ -1,4 +1,4 @@
--- Convert Studio Database Schema (FFmpeg-focused)
+-- NextConvert Database Schema (FFmpeg-focused)
 -- Version: 2.0
 
 -- Enable UUID extension

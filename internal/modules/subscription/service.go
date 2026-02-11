@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/convert-studio/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/shared/database"
 )
 
 // UserSubscription represents a user's subscription and usage

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/convert-studio/backend/internal/api/websocket"
-	"github.com/convert-studio/backend/internal/modules/subscription"
-	"github.com/convert-studio/backend/internal/shared/database"
-	"github.com/convert-studio/backend/internal/shared/storage"
+	"github.com/nextconvert/backend/internal/api/websocket"
+	"github.com/nextconvert/backend/internal/modules/subscription"
+	"github.com/nextconvert/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/shared/storage"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )

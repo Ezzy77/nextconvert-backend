@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: convert_studio
+      POSTGRES_DB: nextconvert
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -51,7 +51,7 @@ services:
     environment:
       - ENVIRONMENT=production
       - PORT=8080
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/nextconvert?sslmode=disable}
       - REDIS_URL=redis:6379
       - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
       - STORAGE_BASE_PATH=/app/data
@@ -85,7 +85,7 @@ services:
       - .env
     environment:
       - ENVIRONMENT=development
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/convert_studio?sslmode=disable}
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/nextconvert?sslmode=disable}
       - REDIS_URL=redis:6379
       - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
       - STORAGE_BASE_PATH=/app/data

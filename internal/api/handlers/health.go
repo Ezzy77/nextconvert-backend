@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/convert-studio/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/shared/database"
 )
 
 // HealthHandler handles health check endpoints

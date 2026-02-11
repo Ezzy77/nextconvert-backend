@@ -9,15 +9,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/convert-studio/backend/internal/api"
-	"github.com/convert-studio/backend/internal/api/websocket"
-	"github.com/convert-studio/backend/internal/modules/jobs"
-	"github.com/convert-studio/backend/internal/modules/media"
-	"github.com/convert-studio/backend/internal/modules/subscription"
-	"github.com/convert-studio/backend/internal/shared/config"
-	"github.com/convert-studio/backend/internal/shared/database"
-	"github.com/convert-studio/backend/internal/shared/logging"
-	"github.com/convert-studio/backend/internal/shared/storage"
+	"github.com/nextconvert/backend/internal/api"
+	"github.com/nextconvert/backend/internal/api/websocket"
+	"github.com/nextconvert/backend/internal/modules/jobs"
+	"github.com/nextconvert/backend/internal/modules/media"
+	"github.com/nextconvert/backend/internal/modules/subscription"
+	"github.com/nextconvert/backend/internal/shared/config"
+	"github.com/nextconvert/backend/internal/shared/database"
+	"github.com/nextconvert/backend/internal/shared/logging"
+	"github.com/nextconvert/backend/internal/shared/storage"
 	"go.uber.org/zap"
 )
 
@@ -42,7 +42,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	logger.Info("Starting Convert Studio API Server",
+	logger.Info("Starting NextConvert API Server",
 		zap.String("version", Version),
 		zap.String("build_time", BuildTime),
 		zap.String("environment", cfg.Environment),

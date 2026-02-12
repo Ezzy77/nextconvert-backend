@@ -71,9 +71,9 @@ func (s *Server) Router() *chi.Mux {
 	// CORS - allow all origins for now
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
-		ExposedHeaders:   []string{"Link", "X-Request-ID"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Range"},
+		ExposedHeaders:   []string{"Link", "X-Request-ID", "Content-Length", "Content-Range", "Content-Disposition"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))

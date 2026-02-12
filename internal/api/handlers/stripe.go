@@ -132,7 +132,7 @@ func (h *StripeHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 			"tier":          req.Tier,
 		},
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
-			TrialPeriodDays: stripe.Int64(60), // Get 2 months free
+			TrialPeriodDays: stripe.Int64(14), // Get 2 weeks free
 			Metadata: map[string]string{
 				"clerk_user_id": userID,
 				"tier":          req.Tier,

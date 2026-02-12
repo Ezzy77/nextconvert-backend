@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -208,10 +207,13 @@ func (m *Module) Probe(ctx context.Context, fileID string) (*MediaInfo, error) {
 		return nil, fmt.Errorf("file not found: %w", err)
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(storagePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file does not exist on disk: %s", storagePath)
+	// For remote storage (S3), download file to temp location first
+	localPath, cleanup, err := m.storage.PrepareInputForProcessing(ctx, storagePath)
+	if err != nil {
+		m.logger.Error("Failed to prepare file for probing", zap.Error(err), zap.String("storage_path", storagePath))
+		return nil, fmt.Errorf("failed to prepare file: %w", err)
 	}
+	defer cleanup()
 
 	// Run ffprobe
 	args := []string{
@@ -219,13 +221,13 @@ func (m *Module) Probe(ctx context.Context, fileID string) (*MediaInfo, error) {
 		"-print_format", "json",
 		"-show_format",
 		"-show_streams",
-		storagePath,
+		localPath,
 	}
 
 	cmd := exec.CommandContext(ctx, "ffprobe", args...)
 	output, err := cmd.Output()
 	if err != nil {
-		m.logger.Error("ffprobe failed", zap.Error(err), zap.String("path", storagePath))
+		m.logger.Error("ffprobe failed", zap.Error(err), zap.String("path", localPath))
 		return nil, fmt.Errorf("ffprobe failed: %w", err)
 	}
 

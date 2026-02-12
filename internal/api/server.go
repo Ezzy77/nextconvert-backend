@@ -1,6 +1,9 @@
 package api
 
 import (
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/nextconvert/backend/internal/api/handlers"
 	"github.com/nextconvert/backend/internal/api/middleware"
 	"github.com/nextconvert/backend/internal/api/websocket"
@@ -10,23 +13,20 @@ import (
 	"github.com/nextconvert/backend/internal/shared/config"
 	"github.com/nextconvert/backend/internal/shared/database"
 	"github.com/nextconvert/backend/internal/shared/storage"
-	"github.com/go-chi/chi/v5"
-	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 	"go.uber.org/zap"
 )
 
 // ServerConfig holds dependencies for the API server
 type ServerConfig struct {
-	Config           *config.Config
-	Logger           *zap.Logger
-	DB               *database.Postgres
-	Redis            *database.Redis
-	Storage          *storage.Service
-	WSHub            *websocket.Hub
-	MediaModule      *media.Module
-	JobsModule       *jobs.Module
-	SubscriptionSvc  *subscription.Service
+	Config          *config.Config
+	Logger          *zap.Logger
+	DB              *database.Postgres
+	Redis           *database.Redis
+	Storage         *storage.Service
+	WSHub           *websocket.Hub
+	MediaModule     *media.Module
+	JobsModule      *jobs.Module
+	SubscriptionSvc *subscription.Service
 }
 
 // Server represents the API server
@@ -68,13 +68,13 @@ func (s *Server) Router() *chi.Mux {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Compress(5))
 
-	// CORS
+	// CORS - allow all origins for now
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   s.config.AllowedOrigins,
+		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
 		ExposedHeaders:   []string{"Link", "X-Request-ID"},
-		AllowCredentials: true,
+		AllowCredentials: false,
 		MaxAge:           300,
 	}))
 

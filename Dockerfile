@@ -28,19 +28,16 @@ RUN apk add --no-cache \
     tzdata \
     ffmpeg
 
-# Create non-root user
-RUN adduser -D -g '' appuser
-
 WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /bin/server /app/server
 
-# Create data directories
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
-    chown -R appuser:appuser /app
+# Create data directories (will be overridden by volume mount in production)
+RUN mkdir -p /app/data/upload /app/data/working /app/data/output
 
-USER appuser
+# Note: Running as root for Railway volume compatibility
+# Railway volumes are owned by root and need root access to create subdirectories
 
 EXPOSE 8080
 
@@ -57,18 +54,15 @@ RUN apk add --no-cache \
     ttf-dejavu \
     fontconfig
 
-# Create non-root user
-RUN adduser -D -g '' appuser
-
 WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /bin/worker /app/worker
 
-# Create data directories
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
-    chown -R appuser:appuser /app
+# Create data directories (will be overridden by volume mount in production)
+RUN mkdir -p /app/data/upload /app/data/working /app/data/output
 
-USER appuser
+# Note: Running as root for Railway volume compatibility
+# Railway volumes are owned by root and need root access to create subdirectories
 
 CMD ["/app/worker"]

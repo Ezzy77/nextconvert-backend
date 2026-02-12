@@ -206,7 +206,7 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 	// Encode with H.264 and AAC for maximum compatibility
 	preset := "medium"
 	if p.preferFastPresets {
-		preset = "veryfast"
+		preset = "faster"
 	}
 
 	if p.useHWAccel(&opts) {
@@ -215,6 +215,11 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 		args = append(args, "-c:v", "libx264", "-preset", preset, "-crf", "23")
 	}
 	args = append(args, "-c:a", "aac", "-b:a", "192k")
+
+	// Add -movflags +faststart for MP4 outputs (enables progressive download/playback)
+	if strings.HasSuffix(strings.ToLower(opts.OutputPath), ".mp4") {
+		args = append(args, "-movflags", "+faststart")
+	}
 
 	args = append(args, opts.OutputPath)
 
@@ -260,7 +265,7 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 	// Determine the preset to use based on configuration
 	preset := "medium"
 	if p.preferFastPresets {
-		preset = "veryfast" // Good balance of speed and quality
+		preset = "faster" // ~20% slower than veryfast but ~15% smaller output with better quality
 	}
 
 	for _, op := range opts.Operations {
@@ -856,10 +861,15 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 		} else {
 			preset := "medium"
 			if p.preferFastPresets {
-				preset = "veryfast"
+				preset = "faster"
 			}
 			args = append(args, "-c:v", "libx264", "-preset", preset, "-c:a", "aac")
 		}
+	}
+
+	// Add -movflags +faststart for MP4 outputs (enables progressive download/playback)
+	if strings.HasSuffix(strings.ToLower(opts.OutputPath), ".mp4") {
+		args = append(args, "-movflags", "+faststart")
 	}
 
 	args = append(args, opts.OutputPath)

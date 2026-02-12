@@ -245,12 +245,16 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 	args := []string{"-y"}
 
-	// Limit CPU threads to reduce memory usage (default to 1 if not set)
+	// Limit CPU threads and memory to prevent OOM on constrained environments
 	threads := p.maxThreads
 	if threads <= 0 {
-		threads = 1 // Default to 1 thread to prevent OOM on constrained environments
+		threads = 1
 	}
 	args = append(args, "-threads", strconv.Itoa(threads))
+
+	// Limit input buffer to reduce memory usage on low-RAM servers
+	args = append(args, "-probesize", "5000000")   // 5MB probe size (default 5MB)
+	args = append(args, "-analyzeduration", "5000000") // 5 seconds analyze
 
 	args = append(args, "-i", opts.InputPath)
 
@@ -258,9 +262,10 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 	var audioFilters []string
 
 	// Determine the preset to use based on configuration
+	// ultrafast uses the least memory, critical for low-RAM environments
 	preset := "medium"
 	if p.preferFastPresets {
-		preset = "veryfast" // Much faster encoding, slightly larger file size
+		preset = "ultrafast"
 	}
 
 	for _, op := range opts.Operations {

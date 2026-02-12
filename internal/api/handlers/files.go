@@ -460,8 +460,8 @@ func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 
 // SimpleUpload handles direct file upload (for small files)
 func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form with 500MB max memory
-	if err := r.ParseMultipartForm(500 << 20); err != nil {
+	// Parse multipart form with 32MB max memory; files larger than this are spilled to temp disk
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		h.logger.Error("Failed to parse multipart form", zap.Error(err))
 		http.Error(w, "failed to parse form", http.StatusBadRequest)
 		return

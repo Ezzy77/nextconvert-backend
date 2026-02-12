@@ -1,10 +1,10 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -75,17 +75,43 @@ func (b *S3Backend) objectKey(zone Zone, filename string) string {
 func (b *S3Backend) Store(ctx context.Context, zone Zone, filename string, reader io.Reader) (string, error) {
 	key := b.objectKey(zone, filename)
 
-	// Read all data (needed for Content-Length)
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return "", fmt.Errorf("failed to read data: %w", err)
+	// Stream to S3 without loading entire file into memory
+	var contentLength int64
+	var body io.Reader = reader
+
+	if seeker, ok := reader.(io.ReadSeeker); ok {
+		// Reader supports seeking (e.g. *os.File, multipart.File) -- get size efficiently
+		current, _ := seeker.Seek(0, io.SeekCurrent)
+		end, err := seeker.Seek(0, io.SeekEnd)
+		if err == nil {
+			contentLength = end - current
+			seeker.Seek(current, io.SeekStart)
+		}
 	}
 
-	_, err = b.client.PutObject(ctx, &s3.PutObjectInput{
+	if contentLength == 0 {
+		// Non-seekable reader: buffer to temp file to get a known size
+		tmpFile, err := os.CreateTemp("", "s3-upload-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file: %w", err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+
+		written, err := io.Copy(tmpFile, reader)
+		if err != nil {
+			return "", fmt.Errorf("failed to buffer data: %w", err)
+		}
+		contentLength = written
+		tmpFile.Seek(0, io.SeekStart)
+		body = tmpFile
+	}
+
+	_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(b.bucket),
 		Key:           aws.String(key),
-		Body:          bytes.NewReader(data),
-		ContentLength: aws.Int64(int64(len(data))),
+		Body:          body,
+		ContentLength: aws.Int64(contentLength),
 	})
 	if err != nil {
 		return "", fmt.Errorf("s3 upload failed: %w", err)

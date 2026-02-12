@@ -33,14 +33,15 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /bin/server /app/server
 
-# Create data directories (will be overridden by volume mount in production)
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Note: Running as root for Railway volume compatibility
-# Railway volumes are owned by root and need root access to create subdirectories
+# Note: Entrypoint handles directory creation with proper permissions
 
 EXPOSE 8080
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/server"]
 
 # Worker runtime stage
@@ -59,10 +60,11 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /bin/worker /app/worker
 
-# Create data directories (will be overridden by volume mount in production)
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Note: Running as root for Railway volume compatibility
-# Railway volumes are owned by root and need root access to create subdirectories
+# Note: Entrypoint handles directory creation with proper permissions
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/worker"]

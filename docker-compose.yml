@@ -82,9 +82,9 @@ services:
     platform: linux/amd64
     container_name: NextConvert-worker
     env_file:
-      - .env
+      - .env.prod
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=production
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/nextconvert?sslmode=disable}
       - REDIS_URL=redis:6379
       - STORAGE_BACKEND=${STORAGE_BACKEND:-local}

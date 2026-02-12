@@ -63,10 +63,18 @@ func main() {
 	defer redisClient.Close()
 
 	// Initialize storage
+	logger.Info("Initializing storage",
+		zap.String("backend", cfg.Storage.Backend),
+		zap.String("s3_bucket", cfg.Storage.S3Bucket),
+		zap.String("s3_region", cfg.Storage.S3Region),
+		zap.String("s3_endpoint", cfg.Storage.S3Endpoint),
+		zap.String("base_path", cfg.Storage.BasePath),
+	)
 	storageService, err := storage.NewService(cfg.Storage)
 	if err != nil {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
+	logger.Info("Storage initialized successfully", zap.String("backend", cfg.Storage.Backend))
 
 	// Initialize WebSocket hub
 	wsHub := websocket.NewHub(logger)

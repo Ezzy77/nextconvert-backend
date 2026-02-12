@@ -492,8 +492,13 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 	// Store the file
 	fileInfo, err := h.storage.Store(r.Context(), storage.ZoneUpload, header.Filename, file)
 	if err != nil {
-		h.logger.Error("Failed to store file", zap.Error(err))
-		http.Error(w, "failed to store file", http.StatusInternalServerError)
+		h.logger.Error("Failed to store file",
+			zap.Error(err),
+			zap.String("filename", header.Filename),
+			zap.Int64("size", header.Size),
+			zap.String("error_detail", fmt.Sprintf("%+v", err)),
+		)
+		http.Error(w, fmt.Sprintf("failed to store file: %v", err), http.StatusInternalServerError)
 		return
 	}
 

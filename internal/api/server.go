@@ -114,6 +114,8 @@ func (s *Server) Router() *chi.Mux {
 			r.Route("/files", func(r chi.Router) {
 				r.Post("/upload", fileHandler.InitiateUpload)
 				r.Post("/upload/simple", fileHandler.SimpleUpload)
+				r.Post("/upload/presign", fileHandler.GetPresignedUploadURL)
+				r.Post("/upload/confirm", fileHandler.ConfirmPresignedUpload)
 				r.Post("/upload/chunk", fileHandler.UploadChunk)
 				r.Post("/upload/complete", fileHandler.CompleteUpload)
 				r.Get("/", fileHandler.ListFiles)

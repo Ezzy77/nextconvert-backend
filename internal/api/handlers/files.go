@@ -559,6 +559,160 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// GetPresignedUploadURL returns a presigned S3 PUT URL for direct browser-to-S3 upload
+func (h *FileHandler) GetPresignedUploadURL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+		MimeType string `json:"mimeType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Filename == "" || req.MimeType == "" {
+		http.Error(w, "filename and mimeType are required", http.StatusBadRequest)
+		return
+	}
+
+	// Check tier-based file size limit
+	user := middleware.GetUser(r.Context())
+	userID := "anonymous"
+	if user != nil {
+		userID = user.ID
+	}
+	if h.subSvc != nil && req.Size > 0 {
+		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", req.Size); err != nil {
+			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", req.Size), zap.Error(err))
+			http.Error(w, "file size exceeds your plan limit", http.StatusForbidden)
+			return
+		}
+	}
+
+	fileID := uuid.New().String()
+	ext := ""
+	if dotIdx := strings.LastIndex(req.Filename, "."); dotIdx >= 0 {
+		ext = req.Filename[dotIdx:]
+	}
+
+	presignedURL, key, err := h.storage.GetPresignedUploadURL(r.Context(), storage.ZoneUpload, fileID, ext, req.MimeType)
+	if err != nil {
+		h.logger.Error("Failed to generate presigned URL", zap.Error(err))
+		http.Error(w, "failed to generate upload URL", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("Generated presigned upload URL",
+		zap.String("file_id", fileID),
+		zap.String("filename", req.Filename),
+		zap.Int64("size", req.Size),
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"uploadUrl": presignedURL,
+		"fileId":    fileID,
+		"key":       key,
+	})
+}
+
+// ConfirmPresignedUpload registers a file in the database after a direct-to-S3 upload
+func (h *FileHandler) ConfirmPresignedUpload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileID   string `json:"fileId"`
+		Key      string `json:"key"`
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+		MimeType string `json:"mimeType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.FileID == "" || req.Key == "" || req.Filename == "" {
+		http.Error(w, "fileId, key, and filename are required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the file exists in S3
+	exists, err := h.storage.Exists(r.Context(), req.Key)
+	if err != nil || !exists {
+		h.logger.Error("File not found in S3 after presigned upload",
+			zap.String("file_id", req.FileID),
+			zap.String("key", req.Key),
+			zap.Error(err),
+		)
+		http.Error(w, "uploaded file not found in storage", http.StatusNotFound)
+		return
+	}
+
+	// Get actual size from S3 if not provided
+	size := req.Size
+	if size == 0 {
+		s3Size, err := h.storage.GetSize(r.Context(), req.Key)
+		if err == nil {
+			size = s3Size
+		}
+	}
+
+	// Determine media type from MIME
+	var mediaType *string
+	if strings.HasPrefix(req.MimeType, "video/") {
+		mt := "video"
+		mediaType = &mt
+	} else if strings.HasPrefix(req.MimeType, "audio/") {
+		mt := "audio"
+		mediaType = &mt
+	} else if strings.HasPrefix(req.MimeType, "image/") {
+		mt := "image"
+		mediaType = &mt
+	}
+
+	// Get user ID
+	user := middleware.GetUser(r.Context())
+	var userIDPtr *string
+	if user != nil && user.ID != "anonymous" {
+		userIDPtr = &user.ID
+	}
+
+	fileInfo := &storage.FileInfo{
+		ID:        req.FileID,
+		Name:      req.Filename,
+		Path:      req.Key,
+		Zone:      storage.ZoneUpload,
+		Size:      size,
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+
+	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, req.Filename, req.MimeType, mediaType, userIDPtr)
+	if err != nil {
+		h.logger.Error("Failed to insert file into database", zap.Error(err))
+		http.Error(w, "failed to save file metadata", http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info("Presigned upload confirmed",
+		zap.String("file_id", fileRecord.ID),
+		zap.String("filename", req.Filename),
+		zap.Int64("size", size),
+	)
+
+	response := map[string]interface{}{
+		"id":          fileRecord.ID,
+		"name":        req.Filename,
+		"size":        size,
+		"mimeType":    req.MimeType,
+		"storagePath": req.Key,
+		"zone":        string(storage.ZoneUpload),
+		"createdAt":   fileRecord.CreatedAt,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
+}
+
 // getFileFromDB retrieves a file record from the database
 func (h *FileHandler) getFileFromDB(ctx context.Context, fileID string) (*FileRecord, error) {
 	var file FileRecord

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -170,6 +171,26 @@ func (b *S3Backend) GetSize(ctx context.Context, storagePath string) (int64, err
 		return *resp.ContentLength, nil
 	}
 	return 0, nil
+}
+
+// GetPresignedUploadURL generates a presigned PUT URL for direct client-to-S3 upload
+func (b *S3Backend) GetPresignedUploadURL(ctx context.Context, zone Zone, filename string, contentType string, expiry time.Duration) (string, string, error) {
+	key := b.objectKey(zone, filename)
+
+	presignClient := s3.NewPresignClient(b.client)
+
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(b.bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+	}
+
+	resp, err := presignClient.PresignPutObject(ctx, input, s3.WithPresignExpires(expiry))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate presigned URL: %w", err)
+	}
+
+	return resp.URL, key, nil
 }
 
 func (b *S3Backend) List(ctx context.Context, prefix string) ([]string, error) {

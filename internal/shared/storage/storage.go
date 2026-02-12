@@ -121,6 +121,11 @@ func (s *Service) Exists(ctx context.Context, path string) (bool, error) {
 	return s.backend.Exists(ctx, path)
 }
 
+// GetSize returns the size of a file in bytes
+func (s *Service) GetSize(ctx context.Context, path string) (int64, error) {
+	return s.backend.GetSize(ctx, path)
+}
+
 // Copy copies a file from one path to another
 func (s *Service) Copy(ctx context.Context, srcPath string, destZone Zone, destName string) (*FileInfo, error) {
 	reader, err := s.backend.Retrieve(ctx, srcPath)
@@ -164,6 +169,22 @@ func (s *Service) GetFullPath(storagePath string) string {
 // IsRemote returns true if the storage backend is remote (S3)
 func (s *Service) IsRemote() bool {
 	return s.isRemote
+}
+
+// GetPresignedUploadURL generates a presigned PUT URL for direct client-to-S3 upload.
+// Returns the presigned URL, the S3 object key, and an error.
+func (s *Service) GetPresignedUploadURL(ctx context.Context, zone Zone, fileID string, ext string, contentType string) (string, string, error) {
+	s3backend, ok := s.backend.(*S3Backend)
+	if !ok {
+		return "", "", fmt.Errorf("presigned URLs only supported with S3 backend")
+	}
+
+	filename := fileID + ext
+	url, key, err := s3backend.GetPresignedUploadURL(ctx, zone, filename, contentType, 15*time.Minute)
+	if err != nil {
+		return "", "", err
+	}
+	return url, key, nil
 }
 
 // PrepareInputForProcessing downloads remote input to temp for FFmpeg.

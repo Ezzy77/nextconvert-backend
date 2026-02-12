@@ -1,0 +1,52 @@
+# Build stage
+FROM --platform=linux/amd64 golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build both binaries
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /bin/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /bin/worker ./cmd/worker
+
+# Runtime stage - runs both server and worker
+FROM --platform=linux/amd64 alpine:3.19
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    ffmpeg \
+    ttf-dejavu \
+    fontconfig
+
+# Create non-root user
+RUN adduser -D -g '' appuser
+
+WORKDIR /app
+
+# Copy both binaries from builder
+COPY --from=builder /bin/server /app/server
+COPY --from=builder /bin/worker /app/worker
+
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Create data directories
+RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8080
+
+CMD ["/app/start.sh"]

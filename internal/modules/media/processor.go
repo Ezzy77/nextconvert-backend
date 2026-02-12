@@ -159,9 +159,12 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 	// This re-encodes everything to ensure compatibility
 	args := []string{"-y"}
 
-	if p.maxThreads > 0 {
-		args = append(args, "-threads", strconv.Itoa(p.maxThreads))
+	// Limit threads to prevent OOM
+	threads := p.maxThreads
+	if threads <= 0 {
+		threads = 1
 	}
+	args = append(args, "-threads", strconv.Itoa(threads))
 
 	// Add all input files
 	for _, inputPath := range inputPaths {
@@ -242,10 +245,12 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 	args := []string{"-y"}
 
-	// Limit CPU threads to reduce system load
-	if p.maxThreads > 0 {
-		args = append(args, "-threads", strconv.Itoa(p.maxThreads))
+	// Limit CPU threads to reduce memory usage (default to 1 if not set)
+	threads := p.maxThreads
+	if threads <= 0 {
+		threads = 1 // Default to 1 thread to prevent OOM on constrained environments
 	}
+	args = append(args, "-threads", strconv.Itoa(threads))
 
 	args = append(args, "-i", opts.InputPath)
 

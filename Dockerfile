@@ -37,7 +37,9 @@ COPY --from=builder /bin/server /app/server
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Note: Entrypoint handles directory creation with proper permissions
+# Create data directories with full permissions for Railway volume
+RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
+    chmod -R 777 /app/data
 
 EXPOSE 8080
 
@@ -64,7 +66,9 @@ COPY --from=builder /bin/worker /app/worker
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Note: Entrypoint handles directory creation with proper permissions
+# Create data directories with full permissions for Railway volume
+RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
+    chmod -R 777 /app/data
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/worker"]

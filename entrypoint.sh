@@ -1,9 +1,10 @@
 #!/bin/sh
 set -e
 
-# Create directories with full permissions for Railway volume compatibility
-mkdir -p /app/data/upload /app/data/working /app/data/output 2>/dev/null || true
-chmod -R 777 /app/data 2>/dev/null || true
+echo "Running as: $(id)"
+echo "Owner of /app/data: $(ls -la /app/ | grep data)"
 
-# Execute the command passed as arguments
+mkdir -p /app/data/upload /app/data/working /app/data/output
+chmod -R 777 /app/data
+
 exec "$@"

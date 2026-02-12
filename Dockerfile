@@ -43,6 +43,7 @@ RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
 
 EXPOSE 8080
 
+USER root
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/server"]
 
@@ -70,5 +71,6 @@ RUN chmod +x /app/entrypoint.sh
 RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
     chmod -R 777 /app/data
 
+USER root
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/worker"]

@@ -214,7 +214,7 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		return err
 	}
 
-	// For remote storage: upload output to Supabase, get size from local first
+	// For remote storage: upload output to S3, get size from local first
 	storagePath := payload.OutputPath
 	var outputSize int64
 

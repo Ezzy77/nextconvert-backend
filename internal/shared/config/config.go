@@ -16,7 +16,6 @@ type Config struct {
 
 	// Database: PostgreSQL connection string.
 	// Local: postgres://postgres:postgres@localhost:5432/nextconvert?sslmode=disable
-	// Supabase (direct): postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?sslmode=require
 	DatabaseURL string
 	RedisURL    string
 
@@ -53,18 +52,13 @@ type Config struct {
 
 // StorageConfig holds storage-specific configuration
 type StorageConfig struct {
-	Backend     string // local, s3, supabase
+	Backend     string // local, s3
 	BasePath    string
-	S3Endpoint  string
+	S3Endpoint  string // Custom endpoint for S3-compatible services (MinIO, DigitalOcean Spaces, etc.)
 	S3Bucket    string
 	S3AccessKey string
 	S3SecretKey string
 	S3Region    string
-	// Supabase Storage (backend=supabase)
-	SupabaseURL        string // https://PROJECT_REF.supabase.co
-	SupabaseServiceKey string // service_role key for server-side ops (bypasses RLS)
-	SupabaseBucket     string // bucket name (default: media)
-	SupabaseTimeout    int    // HTTP timeout in seconds (default: 900 = 15 min for large uploads)
 }
 
 // Load reads configuration from environment variables
@@ -96,17 +90,13 @@ func Load() (*Config, error) {
 		StripeSuccessURL:    getEnv("STRIPE_SUCCESS_URL", "http://localhost:5173/pricing?success=true"),
 		StripeCancelURL:     getEnv("STRIPE_CANCEL_URL", "http://localhost:5173/pricing"),
 		Storage: StorageConfig{
-			Backend:            getEnv("STORAGE_BACKEND", "local"),
-			BasePath:           getEnv("STORAGE_BASE_PATH", "./data"),
-			S3Endpoint:         getEnv("S3_ENDPOINT", ""),
-			S3Bucket:           getEnv("S3_BUCKET", ""),
-			S3AccessKey:        getEnv("S3_ACCESS_KEY", ""),
-			S3SecretKey:        getEnv("S3_SECRET_KEY", ""),
-			S3Region:           getEnv("S3_REGION", "us-east-1"),
-			SupabaseURL:        getEnv("SUPABASE_URL", ""),
-			SupabaseServiceKey: getEnv("SUPABASE_SERVICE_ROLE_KEY", ""),
-			SupabaseBucket:     getEnv("SUPABASE_STORAGE_BUCKET", "media"),
-			SupabaseTimeout:    getEnvInt("SUPABASE_STORAGE_TIMEOUT", 900),
+			Backend:    getEnv("STORAGE_BACKEND", "local"),
+			BasePath:   getEnv("STORAGE_BASE_PATH", "./data"),
+			S3Endpoint: getEnv("S3_ENDPOINT", ""),
+			S3Bucket:   getEnv("S3_BUCKET", ""),
+			S3AccessKey: getEnv("S3_ACCESS_KEY", ""),
+			S3SecretKey: getEnv("S3_SECRET_KEY", ""),
+			S3Region:   getEnv("S3_REGION", "us-east-1"),
 		},
 	}
 

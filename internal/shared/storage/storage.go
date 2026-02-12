@@ -59,8 +59,6 @@ func NewService(cfg config.StorageConfig) (*Service, error) {
 	switch cfg.Backend {
 	case "local":
 		backend, err = NewLocalBackend(cfg.BasePath)
-	case "supabase":
-		backend, err = NewSupabaseBackend(cfg)
 	case "s3":
 		backend, err = NewS3Backend(cfg)
 	default:
@@ -74,7 +72,7 @@ func NewService(cfg config.StorageConfig) (*Service, error) {
 	return &Service{
 		backend:  backend,
 		basePath: cfg.BasePath,
-		isRemote: cfg.Backend == "supabase" || cfg.Backend == "s3",
+		isRemote: cfg.Backend == "s3",
 	}, nil
 }
 
@@ -150,7 +148,7 @@ func (s *Service) Move(ctx context.Context, srcPath string, destZone Zone, destN
 }
 
 // GetPath returns the path for a file in a zone
-// For local: full filesystem path. For Supabase: object key (zone/filename)
+// For local: full filesystem path. For S3: object key (zone/filename)
 func (s *Service) GetPath(zone Zone, filename string) string {
 	if s.isRemote {
 		return filepath.Join(string(zone), filename)
@@ -163,7 +161,7 @@ func (s *Service) GetFullPath(storagePath string) string {
 	return storagePath
 }
 
-// IsRemote returns true if the storage backend is remote (Supabase, S3)
+// IsRemote returns true if the storage backend is remote (S3)
 func (s *Service) IsRemote() bool {
 	return s.isRemote
 }
@@ -293,36 +291,3 @@ func (b *LocalBackend) List(ctx context.Context, prefix string) ([]string, error
 	return files, err
 }
 
-// S3Backend implements S3-compatible storage (placeholder)
-type S3Backend struct {
-	// TODO: Implement S3 backend
-}
-
-func NewS3Backend(cfg config.StorageConfig) (*S3Backend, error) {
-	// TODO: Implement S3 backend initialization
-	return &S3Backend{}, nil
-}
-
-func (b *S3Backend) Store(ctx context.Context, zone Zone, filename string, reader io.Reader) (string, error) {
-	return "", fmt.Errorf("S3 backend not implemented")
-}
-
-func (b *S3Backend) Retrieve(ctx context.Context, path string) (io.ReadCloser, error) {
-	return nil, fmt.Errorf("S3 backend not implemented")
-}
-
-func (b *S3Backend) Delete(ctx context.Context, path string) error {
-	return fmt.Errorf("S3 backend not implemented")
-}
-
-func (b *S3Backend) Exists(ctx context.Context, path string) (bool, error) {
-	return false, fmt.Errorf("S3 backend not implemented")
-}
-
-func (b *S3Backend) GetSize(ctx context.Context, path string) (int64, error) {
-	return 0, fmt.Errorf("S3 backend not implemented")
-}
-
-func (b *S3Backend) List(ctx context.Context, prefix string) ([]string, error) {
-	return nil, fmt.Errorf("S3 backend not implemented")
-}

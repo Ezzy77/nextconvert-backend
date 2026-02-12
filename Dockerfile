@@ -33,18 +33,11 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /bin/server /app/server
 
-# Copy entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
-# Create data directories with full permissions for Railway volume
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
-    chmod -R 777 /app/data
+# Create tmp directory for remote storage temp files
+RUN mkdir -p /tmp
 
 EXPOSE 8080
 
-USER root
-ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/server"]
 
 # Worker runtime stage
@@ -63,14 +56,7 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /bin/worker /app/worker
 
-# Copy entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Create tmp directory for remote storage temp files
+RUN mkdir -p /tmp
 
-# Create data directories with full permissions for Railway volume
-RUN mkdir -p /app/data/upload /app/data/working /app/data/output && \
-    chmod -R 777 /app/data
-
-USER root
-ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/app/worker"]

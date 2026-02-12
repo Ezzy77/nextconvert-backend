@@ -227,7 +227,7 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve file from storage (works for both local and remote/Supabase)
+	// Retrieve file from storage (works for both local and remote/S3)
 	reader, err := h.storage.Retrieve(r.Context(), file.StoragePath)
 	if err != nil {
 		h.logger.Error("Failed to retrieve file from storage", zap.Error(err), zap.String("path", file.StoragePath))
@@ -243,7 +243,7 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	// For local storage, support Range requests for video streaming
-	// For remote (Supabase), stream full file
+	// For remote (S3), stream full file
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader != "" && !h.storage.IsRemote() {
 		f, ok := reader.(*os.File)

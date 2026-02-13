@@ -68,9 +68,11 @@ func (s *Server) Router() *chi.Mux {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Compress(5))
 
-	// CORS - use configured origins, enable credentials for anonymous cookie tracking
+	// CORS - allow all origins for now, enable credentials for anonymous cookie tracking.
+	// With AllowedOrigins=["*"] and AllowCredentials=true, go-chi/cors will reflect the
+	// request's Origin header back (not send literal "*") which is required by browsers.
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   s.config.AllowedOrigins,
+		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Range"},
 		ExposedHeaders:   []string{"Link", "X-Request-ID", "Content-Length", "Content-Range", "Content-Disposition"},

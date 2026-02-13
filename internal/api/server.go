@@ -107,7 +107,12 @@ func (s *Server) Router() *chi.Mux {
 		"standard": s.config.StripeStandardPriceID,
 		"pro":      s.config.StripeProPriceID,
 	}
-	stripeHandler := handlers.NewStripeHandler(s.subscriptionSvc, s.config.StripeSecretKey, s.config.StripeWebhookSecret, priceIDs, s.config.StripeSuccessURL, s.config.StripeCancelURL, s.logger)
+	yearlyPriceIDs := map[string]string{
+		"basic":    s.config.StripeBasicYearlyPriceID,
+		"standard": s.config.StripeStandardYearlyPriceID,
+		"pro":      s.config.StripeProYearlyPriceID,
+	}
+	stripeHandler := handlers.NewStripeHandler(s.subscriptionSvc, s.config.StripeSecretKey, s.config.StripeWebhookSecret, priceIDs, yearlyPriceIDs, s.config.StripeSuccessURL, s.config.StripeCancelURL, s.logger)
 	subscriptionHandler := handlers.NewSubscriptionHandler(s.subscriptionSvc, stripeHandler, s.logger)
 
 	// API routes

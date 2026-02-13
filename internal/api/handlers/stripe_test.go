@@ -15,12 +15,19 @@ func TestNewStripeHandler(t *testing.T) {
 		"pro":      "price_789",
 	}
 
+	yearlyPriceIDs := map[string]string{
+		"basic":    "price_y123",
+		"standard": "price_y456",
+		"pro":      "price_y789",
+	}
+
 	t.Run("creates handler with configuration", func(t *testing.T) {
 		handler := NewStripeHandler(
 			nil,
 			"sk_test_123",
 			"whsec_123",
 			priceIDs,
+			yearlyPriceIDs,
 			"https://example.com/success",
 			"https://example.com/cancel",
 			logger,
@@ -32,14 +39,18 @@ func TestNewStripeHandler(t *testing.T) {
 		assert.Equal(t, "https://example.com/success", handler.successURL)
 		assert.Equal(t, "https://example.com/cancel", handler.cancelURL)
 		assert.Equal(t, priceIDs, handler.priceIDs)
+		assert.Equal(t, yearlyPriceIDs, handler.yearlyPriceIDs)
 	})
 
 	t.Run("stores all tier price IDs", func(t *testing.T) {
-		handler := NewStripeHandler(nil, "", "", priceIDs, "", "", logger)
+		handler := NewStripeHandler(nil, "", "", priceIDs, yearlyPriceIDs, "", "", logger)
 		
 		assert.Equal(t, "price_123", handler.priceIDs["basic"])
 		assert.Equal(t, "price_456", handler.priceIDs["standard"])
 		assert.Equal(t, "price_789", handler.priceIDs["pro"])
+		assert.Equal(t, "price_y123", handler.yearlyPriceIDs["basic"])
+		assert.Equal(t, "price_y456", handler.yearlyPriceIDs["standard"])
+		assert.Equal(t, "price_y789", handler.yearlyPriceIDs["pro"])
 	})
 }
 
@@ -62,7 +73,7 @@ func TestStripeTierMapping(t *testing.T) {
 				"pro":      "price_pro",
 			}
 			
-			handler := NewStripeHandler(nil, "", "", priceIDs, "", "", zap.NewNop())
+			handler := NewStripeHandler(nil, "", "", priceIDs, nil, "", "", zap.NewNop())
 			priceID, exists := handler.priceIDs[tt.tier]
 			
 			assert.True(t, exists, "tier should exist in price IDs")
@@ -96,12 +107,12 @@ func TestStripeConfiguration(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("requires secret key for production", func(t *testing.T) {
-		handler := NewStripeHandler(nil, "", "", nil, "", "", logger)
+		handler := NewStripeHandler(nil, "", "", nil, nil, "", "", logger)
 		assert.Empty(t, handler.secretKey, "empty secret key should be handled gracefully")
 	})
 
 	t.Run("requires webhook secret for security", func(t *testing.T) {
-		handler := NewStripeHandler(nil, "sk_test", "", nil, "", "", logger)
+		handler := NewStripeHandler(nil, "sk_test", "", nil, nil, "", "", logger)
 		assert.Empty(t, handler.webhookSecret, "empty webhook secret should be handled")
 	})
 
@@ -110,6 +121,7 @@ func TestStripeConfiguration(t *testing.T) {
 			nil,
 			"sk_test",
 			"whsec_test",
+			nil,
 			nil,
 			"https://example.com/success",
 			"https://example.com/cancel",

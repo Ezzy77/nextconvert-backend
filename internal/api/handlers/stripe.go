@@ -20,31 +20,34 @@ import (
 
 // StripeHandler handles Stripe checkout and webhooks
 type StripeHandler struct {
-	subService    *subscription.Service
-	secretKey     string
-	webhookSecret string
-	priceIDs      map[string]string
-	successURL    string
-	cancelURL     string
-	logger        *zap.Logger
+	subService      *subscription.Service
+	secretKey       string
+	webhookSecret   string
+	priceIDs        map[string]string // monthly price IDs
+	yearlyPriceIDs  map[string]string // yearly price IDs
+	successURL      string
+	cancelURL       string
+	logger          *zap.Logger
 }
 
 // NewStripeHandler creates a new Stripe handler
-func NewStripeHandler(subService *subscription.Service, secretKey, webhookSecret string, priceIDs map[string]string, successURL, cancelURL string, logger *zap.Logger) *StripeHandler {
+func NewStripeHandler(subService *subscription.Service, secretKey, webhookSecret string, priceIDs, yearlyPriceIDs map[string]string, successURL, cancelURL string, logger *zap.Logger) *StripeHandler {
 	return &StripeHandler{
-		subService:    subService,
-		secretKey:     secretKey,
-		webhookSecret: webhookSecret,
-		priceIDs:      priceIDs,
-		successURL:    successURL,
-		cancelURL:     cancelURL,
-		logger:        logger,
+		subService:     subService,
+		secretKey:      secretKey,
+		webhookSecret:  webhookSecret,
+		priceIDs:       priceIDs,
+		yearlyPriceIDs: yearlyPriceIDs,
+		successURL:     successURL,
+		cancelURL:      cancelURL,
+		logger:         logger,
 	}
 }
 
 // CreateCheckoutRequest is the request body for checkout
 type CreateCheckoutRequest struct {
-	Tier string `json:"tier"` // basic, standard, pro
+	Tier     string `json:"tier"`     // basic, standard, pro
+	Interval string `json:"interval"` // monthly, yearly (default: monthly)
 }
 
 // CreateCheckoutResponse returns the Stripe Checkout URL
@@ -65,10 +68,30 @@ func (h *StripeHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	priceID, ok := h.priceIDs[req.Tier]
-	if !ok {
-		http.Error(w, "invalid tier", http.StatusBadRequest)
+	// Default to monthly if not specified
+	interval := req.Interval
+	if interval == "" {
+		interval = "monthly"
+	}
+	if interval != "monthly" && interval != "yearly" {
+		http.Error(w, "invalid interval: must be monthly or yearly", http.StatusBadRequest)
 		return
+	}
+
+	var priceID string
+	var ok bool
+	if interval == "yearly" {
+		priceID, ok = h.yearlyPriceIDs[req.Tier]
+		if !ok || priceID == "" {
+			http.Error(w, "yearly pricing not available for this tier", http.StatusBadRequest)
+			return
+		}
+	} else {
+		priceID, ok = h.priceIDs[req.Tier]
+		if !ok {
+			http.Error(w, "invalid tier", http.StatusBadRequest)
+			return
+		}
 	}
 
 	userID := r.Header.Get("X-User-ID")
@@ -130,12 +153,14 @@ func (h *StripeHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		Metadata: map[string]string{
 			"clerk_user_id": userID,
 			"tier":          req.Tier,
+			"interval":      interval,
 		},
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
 			TrialPeriodDays: stripe.Int64(14), // Get 2 weeks free
 			Metadata: map[string]string{
 				"clerk_user_id": userID,
 				"tier":          req.Tier,
+				"interval":      interval,
 			},
 		},
 	}

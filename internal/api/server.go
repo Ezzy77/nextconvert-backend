@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -69,10 +71,12 @@ func (s *Server) Router() *chi.Mux {
 	r.Use(chimiddleware.Compress(5))
 
 	// CORS - allow all origins for now, enable credentials for anonymous cookie tracking.
-	// With AllowedOrigins=["*"] and AllowCredentials=true, go-chi/cors will reflect the
-	// request's Origin header back (not send literal "*") which is required by browsers.
+	// AllowOriginFunc dynamically returns true for any origin, causing go-chi/cors to
+	// reflect the actual request Origin back (browsers reject literal "*" with credentials).
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			return true // Allow all origins; lock down to s.config.AllowedOrigins later
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Range"},
 		ExposedHeaders:   []string{"Link", "X-Request-ID", "Content-Length", "Content-Range", "Content-Disposition"},

@@ -68,18 +68,25 @@ func (s *Server) Router() *chi.Mux {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Compress(5))
 
-	// CORS - allow all origins for now
+	// CORS - use configured origins, enable credentials for anonymous cookie tracking
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   s.config.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Range"},
 		ExposedHeaders:   []string{"Link", "X-Request-ID", "Content-Length", "Content-Range", "Content-Disposition"},
-		AllowCredentials: false,
+		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
+	// Create rate limiter
+	rateLimiter := middleware.NewRateLimiter(s.redis.Client, s.logger)
+
+	// Apply global rate limit (100 req/min per IP) - before auth so it catches everything
+	r.Use(rateLimiter.Limit(middleware.GlobalRateLimit))
+
 	// Create Clerk auth middleware (subscription service provides tier lookup)
-	clerkAuth := middleware.NewClerkAuthMiddleware(s.config.ClerkSecretKey, s.subscriptionSvc)
+	isSecure := s.config.Environment == "production"
+	clerkAuth := middleware.NewClerkAuthMiddlewareWithOptions(s.config.ClerkSecretKey, s.subscriptionSvc, isSecure)
 
 	// Create handlers
 	healthHandler := handlers.NewHealthHandler(s.db, s.redis)
@@ -103,8 +110,9 @@ func (s *Server) Router() *chi.Mux {
 		r.Get("/health", healthHandler.Health)
 		r.Get("/ready", healthHandler.Ready)
 
-		// Stripe webhook (no auth - verified by signature)
-		r.Post("/webhooks/stripe", stripeHandler.HandleWebhook)
+		// Stripe webhook (no auth - verified by signature, rate limited)
+		r.With(rateLimiter.Limit(middleware.WebhookRateLimit)).
+			Post("/webhooks/stripe", stripeHandler.HandleWebhook)
 
 		// Protected routes - apply Clerk auth middleware
 		r.Group(func(r chi.Router) {
@@ -112,9 +120,19 @@ func (s *Server) Router() *chi.Mux {
 
 			// File management
 			r.Route("/files", func(r chi.Router) {
-				r.Post("/upload", fileHandler.InitiateUpload)
-				r.Post("/upload/simple", fileHandler.SimpleUpload)
-				r.Post("/upload/presign", fileHandler.GetPresignedUploadURL)
+				// Upload routes: rate limited per user + stricter anonymous IP limit
+				r.With(
+					rateLimiter.Limit(middleware.FileUploadRateLimit),
+					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
+				).Post("/upload", fileHandler.InitiateUpload)
+				r.With(
+					rateLimiter.Limit(middleware.FileUploadRateLimit),
+					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
+				).Post("/upload/simple", fileHandler.SimpleUpload)
+				r.With(
+					rateLimiter.Limit(middleware.FileUploadRateLimit),
+					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
+				).Post("/upload/presign", fileHandler.GetPresignedUploadURL)
 				r.Post("/upload/confirm", fileHandler.ConfirmPresignedUpload)
 				r.Post("/upload/chunk", fileHandler.UploadChunk)
 				r.Post("/upload/complete", fileHandler.CompleteUpload)
@@ -144,7 +162,11 @@ func (s *Server) Router() *chi.Mux {
 
 			// Job management
 			r.Route("/jobs", func(r chi.Router) {
-				r.Post("/", jobHandler.CreateJob)
+				// Job creation: rate limited per user + stricter anonymous IP limit
+				r.With(
+					rateLimiter.Limit(middleware.JobCreationRateLimit),
+					rateLimiter.Limit(middleware.AnonJobCreationRateLimit),
+				).Post("/", jobHandler.CreateJob)
 				r.Get("/", jobHandler.ListJobs)
 				r.Get("/{id}", jobHandler.GetJob)
 				r.Delete("/{id}", jobHandler.DeleteJob)

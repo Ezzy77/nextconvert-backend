@@ -148,22 +148,35 @@ func KeyByIP(r *http.Request) string {
 	return fmt.Sprintf("ip:%s", ip)
 }
 
-// KeyByUser generates rate limit key based on user ID
+// KeyByUser generates rate limit key based on user ID from context.
+// Falls back to IP if no user is in context.
 func KeyByUser(r *http.Request) string {
-	userID := r.Header.Get("X-User-ID")
-	if userID == "" {
-		return KeyByIP(r) // Fallback to IP
+	user := GetUser(r.Context())
+	if user != nil && user.ID != "" {
+		return fmt.Sprintf("user:%s", user.ID)
 	}
-	return fmt.Sprintf("user:%s", userID)
+	return KeyByIP(r)
 }
 
 // KeyByUserAndPath generates rate limit key based on user ID and path
 func KeyByUserAndPath(r *http.Request) string {
-	userID := r.Header.Get("X-User-ID")
-	if userID == "" {
-		userID = GetRealIP(r)
+	user := GetUser(r.Context())
+	userKey := GetRealIP(r)
+	if user != nil && user.ID != "" {
+		userKey = user.ID
 	}
-	return fmt.Sprintf("user:%s:path:%s", userID, r.URL.Path)
+	return fmt.Sprintf("user:%s:path:%s", userKey, r.URL.Path)
+}
+
+// KeyByAnonIP generates a rate limit key only for anonymous users, keyed by IP.
+// Returns empty string for authenticated users (skipping the limit).
+func KeyByAnonIP(r *http.Request) string {
+	user := GetUser(r.Context())
+	if user != nil && !user.IsAnonymous() {
+		return "" // Authenticated users are not rate limited by this config
+	}
+	ip := GetRealIP(r)
+	return fmt.Sprintf("anon-ip:%s", ip)
 }
 
 // Common rate limit configurations
@@ -182,14 +195,14 @@ var AuthRateLimit = RateLimitConfig{
 	KeyFunc:  KeyByIP,
 }
 
-// FileUploadRateLimit applies to file upload endpoints
+// FileUploadRateLimit applies to file upload endpoints (per user)
 var FileUploadRateLimit = RateLimitConfig{
 	Requests: 10,
 	Window:   1 * time.Hour,
 	KeyFunc:  KeyByUser,
 }
 
-// JobCreationRateLimit applies to job creation
+// JobCreationRateLimit applies to job creation (per user)
 var JobCreationRateLimit = RateLimitConfig{
 	Requests: 20,
 	Window:   1 * time.Minute,
@@ -201,4 +214,21 @@ var WebhookRateLimit = RateLimitConfig{
 	Requests: 100,
 	Window:   1 * time.Minute,
 	KeyFunc:  KeyByIP,
+}
+
+// AnonFileUploadRateLimit is a stricter IP-based limit for anonymous file uploads.
+// Since anonymous users can clear cookies, this IP-based limit acts as a hard backstop.
+// Authenticated users are not affected (KeyByAnonIP returns "" for them, skipping the limit).
+var AnonFileUploadRateLimit = RateLimitConfig{
+	Requests: 5,
+	Window:   1 * time.Hour,
+	KeyFunc:  KeyByAnonIP,
+}
+
+// AnonJobCreationRateLimit is a stricter IP-based limit for anonymous job creation.
+// Authenticated users are not affected.
+var AnonJobCreationRateLimit = RateLimitConfig{
+	Requests: 10,
+	Window:   1 * time.Hour,
+	KeyFunc:  KeyByAnonIP,
 }

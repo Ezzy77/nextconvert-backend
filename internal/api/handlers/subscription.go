@@ -28,12 +28,12 @@ func NewSubscriptionHandler(subService *subscription.Service, stripe *StripeHand
 // GetMe returns the current user's subscription and usage
 func (h *SubscriptionHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil && user.ID != "anonymous" {
-		userID = user.ID
+	if user == nil {
+		http.Error(w, "user not found", http.StatusInternalServerError)
+		return
 	}
 
-	sub, err := h.subService.GetOrCreateUserProfile(r.Context(), userID)
+	sub, err := h.subService.GetOrCreateUserProfile(r.Context(), user.ID)
 	if err != nil {
 		h.logger.Error("Failed to get subscription", zap.Error(err))
 		http.Error(w, "failed to get subscription", http.StatusInternalServerError)
@@ -47,7 +47,7 @@ func (h *SubscriptionHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 // CreateCheckout delegates to Stripe handler
 func (h *SubscriptionHandler) CreateCheckout(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	if user == nil || user.ID == "anonymous" {
+	if user == nil || user.IsAnonymous() {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
@@ -59,7 +59,7 @@ func (h *SubscriptionHandler) CreateCheckout(w http.ResponseWriter, r *http.Requ
 // CreatePortal delegates to Stripe handler
 func (h *SubscriptionHandler) CreatePortal(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	if user == nil || user.ID == "anonymous" {
+	if user == nil || user.IsAnonymous() {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}

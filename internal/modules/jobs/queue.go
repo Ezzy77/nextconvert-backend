@@ -12,8 +12,10 @@ import (
 
 // Task types
 const (
-	TypeMediaProcess = "media:process"
-	TypeCleanupFiles = "files:cleanup"
+	TypeMediaProcess       = "media:process"
+	TypeCleanupFiles       = "files:cleanup"
+	TypeCleanupStaleJobs   = "jobs:cleanup"
+	TypeCleanupAnonProfiles = "profiles:cleanup_anon"
 )
 
 // QueueClient handles job queue operations
@@ -62,6 +64,17 @@ type MediaProcessPayload struct {
 type CleanupPayload struct {
 	Zone      string `json:"zone"`
 	OlderThan int64  `json:"olderThan"` // Unix timestamp
+}
+
+// StaleJobCleanupPayload contains stale job cleanup task data
+type StaleJobCleanupPayload struct {
+	AnonMaxAgeDays int `json:"anonMaxAgeDays"` // Max age in days for anonymous user jobs (default 7)
+	AuthMaxAgeDays int `json:"authMaxAgeDays"` // Max age in days for authenticated user jobs (default 30)
+}
+
+// AnonProfileCleanupPayload contains anonymous profile pruning task data
+type AnonProfileCleanupPayload struct {
+	InactiveDays int `json:"inactiveDays"` // Delete anon profiles inactive for this many days (default 60)
 }
 
 // EnqueueMediaProcess queues a media processing task
@@ -118,7 +131,9 @@ func (q *QueueClient) EnqueueCleanup(payload CleanupPayload) (*asynq.TaskInfo, e
 	return q.client.Enqueue(task, opts...)
 }
 
-// ScheduleCleanup schedules periodic cleanup - runs hourly, permanently deletes files past 24h expiry
+// ScheduleCleanup schedules periodic cleanup tasks:
+// - Hourly: permanently deletes files past 24h expiry
+// - Daily: removes stale completed/failed jobs and inactive anonymous profiles
 func (q *QueueClient) ScheduleCleanup(redisAddr string) (*asynq.Scheduler, error) {
 	var opts asynq.RedisConnOpt
 	var err error
@@ -137,8 +152,21 @@ func (q *QueueClient) ScheduleCleanup(redisAddr string) (*asynq.Scheduler, error
 		&asynq.SchedulerOpts{},
 	)
 
-	payload, _ := json.Marshal(CleanupPayload{Zone: "all"})
-	if _, err := scheduler.Register("@hourly", asynq.NewTask(TypeCleanupFiles, payload)); err != nil {
+	// Hourly: file cleanup
+	filePayload, _ := json.Marshal(CleanupPayload{Zone: "all"})
+	if _, err := scheduler.Register("@hourly", asynq.NewTask(TypeCleanupFiles, filePayload)); err != nil {
+		return nil, err
+	}
+
+	// Daily at 3 AM: stale job cleanup
+	jobPayload, _ := json.Marshal(StaleJobCleanupPayload{AnonMaxAgeDays: 7, AuthMaxAgeDays: 30})
+	if _, err := scheduler.Register("0 3 * * *", asynq.NewTask(TypeCleanupStaleJobs, jobPayload)); err != nil {
+		return nil, err
+	}
+
+	// Daily at 4 AM: anonymous profile pruning
+	profilePayload, _ := json.Marshal(AnonProfileCleanupPayload{InactiveDays: 60})
+	if _, err := scheduler.Register("0 4 * * *", asynq.NewTask(TypeCleanupAnonProfiles, profilePayload)); err != nil {
 		return nil, err
 	}
 

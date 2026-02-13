@@ -289,7 +289,7 @@ func (m *Module) ListJobs(ctx context.Context, userID, status, jobType string) (
 		SELECT id, user_id, status, priority, input_file_id, output_file_id, output_format, output_file_name, 
 		       operations, progress, error, created_at, started_at, completed_at
 		FROM jobs
-		WHERE ($1 = '' OR $1 = 'anonymous' OR user_id = $1 OR user_id IS NULL)
+		WHERE (user_id = $1 OR (user_id IS NULL AND $1 LIKE 'anon:%'))
 		  AND ($2 = '' OR status = $2::job_status)
 		ORDER BY created_at DESC
 		LIMIT 50
@@ -451,7 +451,7 @@ func (m *Module) CompleteJob(ctx context.Context, jobID, outputFileID string) er
 	var jobUserID *string
 	var convMin int
 	m.db.Pool.QueryRow(ctx, `SELECT user_id, COALESCE(conversion_minutes, 0) FROM jobs WHERE id = $1`, jobID).Scan(&jobUserID, &convMin)
-	if m.subSvc != nil && jobUserID != nil && *jobUserID != "" && *jobUserID != "anonymous" && convMin > 0 {
+	if m.subSvc != nil && jobUserID != nil && *jobUserID != "" && convMin > 0 {
 		if err := m.subSvc.RecordConversionMinutes(ctx, *jobUserID, convMin); err != nil {
 			m.logger.Warn("Failed to record conversion minutes", zap.Error(err), zap.String("user_id", *jobUserID))
 		}
@@ -590,7 +590,7 @@ func (m *Module) scanJobRow(rows rowsScanner) (*Job, error) {
 }
 
 func nullString(s string) *string {
-	if s == "" || s == "anonymous" {
+	if s == "" {
 		return nil
 	}
 	return &s

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -79,7 +80,7 @@ func Load() (*Config, error) {
 		FFmpegFastPresets:   getEnvBool("FFMPEG_FAST_PRESETS", true),    // Default: use fast presets for quicker processing
 		WorkerConcurrency:   getEnvInt("WORKER_CONCURRENCY", 2),
 		ClerkSecretKey:      getEnv("CLERK_SECRET_KEY", ""),
-		AllowedOrigins:      []string{getEnv("ALLOWED_ORIGINS", "http://localhost:5173")},
+		AllowedOrigins:      getEnvSlice("ALLOWED_ORIGINS", "http://localhost:5173"),
 		MaxUploadSize:       getEnvInt64("MAX_UPLOAD_SIZE", 5*1024*1024*1024), // 5GB
 		MaxJobsPerUser:      getEnvInt("MAX_JOBS_PER_USER", 20),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
@@ -126,6 +127,22 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvSlice(key, defaultValue string) []string {
+	value := getEnv(key, defaultValue)
+	parts := strings.Split(value, ",")
+	var result []string
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return []string{defaultValue}
+	}
+	return result
 }
 
 func getEnvBool(key string, defaultValue bool) bool {

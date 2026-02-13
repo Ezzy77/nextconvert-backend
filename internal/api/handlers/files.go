@@ -78,10 +78,7 @@ func (h *FileHandler) InitiateUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Check tier-based file size limit
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 	if h.subSvc != nil {
 		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", fileSize); err != nil {
 			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", fileSize), zap.Error(err))
@@ -354,21 +351,18 @@ func (h *FileHandler) GetThumbnail(w http.ResponseWriter, r *http.Request) {
 // ListFiles returns the user's uploaded files
 func (h *FileHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 
 	zone := r.URL.Query().Get("zone")
 	if zone == "" {
 		zone = "upload"
 	}
 
-	// Authenticated: only own files. Anonymous: files with no user
+	// Match files by user_id. Also include legacy NULL user_id files for anonymous users.
 	rows, err := h.db.Pool.Query(r.Context(), `
 		SELECT id, original_name, storage_path, mime_type, size_bytes, zone, media_type, created_at
 		FROM files
-		WHERE (user_id = $1 OR ($1 = 'anonymous' AND user_id IS NULL)) AND zone = $2
+		WHERE (user_id = $1 OR (user_id IS NULL AND $1 LIKE 'anon:%')) AND zone = $2
 		ORDER BY created_at DESC
 		LIMIT 200
 	`, userID, zone)
@@ -428,15 +422,13 @@ func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 
 	// Check ownership
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 	if file.UserID != nil && *file.UserID != userID {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if file.UserID == nil && userID != "anonymous" {
+	// Legacy NULL user_id files: only anonymous users can delete them
+	if file.UserID == nil && !user.IsAnonymous() {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -477,10 +469,7 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Check tier-based file size limit
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 	if h.subSvc != nil {
 		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", header.Size); err != nil {
 			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", header.Size), zap.Error(err))
@@ -521,11 +510,8 @@ func (h *FileHandler) SimpleUpload(w http.ResponseWriter, r *http.Request) {
 		mediaType = &mt
 	}
 
-	// Get user ID for ownership
-	var userIDPtr *string
-	if user != nil && user.ID != "anonymous" {
-		userIDPtr = &user.ID
-	}
+	// All users (including anon) get their ID stored for ownership tracking
+	userIDPtr := &user.ID
 
 	// Insert into database
 	fileRecord, err := h.insertFileToDB(r.Context(), fileInfo, header.Filename, mimeType, mediaType, userIDPtr)
@@ -577,10 +563,7 @@ func (h *FileHandler) GetPresignedUploadURL(w http.ResponseWriter, r *http.Reque
 
 	// Check tier-based file size limit
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 	if h.subSvc != nil && req.Size > 0 {
 		if err := h.subSvc.CheckLimit(r.Context(), userID, "file_size", req.Size); err != nil {
 			h.logger.Warn("File size limit exceeded", zap.String("user_id", userID), zap.Int64("size", req.Size), zap.Error(err))
@@ -668,12 +651,9 @@ func (h *FileHandler) ConfirmPresignedUpload(w http.ResponseWriter, r *http.Requ
 		mediaType = &mt
 	}
 
-	// Get user ID
+	// All users (including anon) get their ID stored for ownership tracking
 	user := middleware.GetUser(r.Context())
-	var userIDPtr *string
-	if user != nil && user.ID != "anonymous" {
-		userIDPtr = &user.ID
-	}
+	userIDPtr := &user.ID
 
 	fileInfo := &storage.FileInfo{
 		ID:        req.FileID,

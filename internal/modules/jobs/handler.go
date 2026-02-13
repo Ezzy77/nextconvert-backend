@@ -250,7 +250,7 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		outputSize = outputInfo.Size()
 	}
 
-	// Insert output file into database
+	// Insert output file into database, inheriting user_id from the job
 	outputFileID := payload.JobID
 	outputFileName := filepath.Base(storagePath)
 	ext := strings.ToLower(filepath.Ext(outputFileName))
@@ -258,10 +258,16 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 	// Detect mime type and media type based on extension
 	mimeType, mediaType := detectMimeType(ext)
 
+	// Look up the job's user_id so the output file is associated with the correct user
+	var jobUserID *string
+	if err := h.db.Pool.QueryRow(ctx, `SELECT user_id FROM jobs WHERE id = $1`, payload.JobID).Scan(&jobUserID); err != nil {
+		h.logger.Warn("Could not look up job user_id for output file", zap.Error(err), zap.String("job_id", payload.JobID))
+	}
+
 	_, err = h.db.Pool.Exec(ctx, `
-		INSERT INTO files (id, original_name, storage_path, mime_type, size_bytes, zone, media_type, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-	`, outputFileID, outputFileName, storagePath, mimeType, outputSize, "output", mediaType, time.Now().Add(24*time.Hour))
+		INSERT INTO files (id, original_name, storage_path, mime_type, size_bytes, zone, media_type, user_id, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+	`, outputFileID, outputFileName, storagePath, mimeType, outputSize, "output", mediaType, jobUserID, time.Now().Add(24*time.Hour))
 	if err != nil {
 		h.logger.Error("Failed to insert output file into database", zap.Error(err))
 		// Don't fail the job, the file exists
@@ -334,6 +340,84 @@ func (h *Handler) HandleCleanupFiles(ctx context.Context, task *asynq.Task) erro
 	}
 
 	h.logger.Info("Cleanup completed", zap.Int("deleted", deletedCount))
+	return nil
+}
+
+// HandleCleanupStaleJobs removes completed/failed jobs older than a threshold.
+// Anonymous user jobs are cleaned up after 7 days, authenticated user jobs after 30 days.
+func (h *Handler) HandleCleanupStaleJobs(ctx context.Context, task *asynq.Task) error {
+	var payload StaleJobCleanupPayload
+	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	if payload.AnonMaxAgeDays <= 0 {
+		payload.AnonMaxAgeDays = 7
+	}
+	if payload.AuthMaxAgeDays <= 0 {
+		payload.AuthMaxAgeDays = 30
+	}
+
+	h.logger.Info("Cleaning up stale jobs",
+		zap.Int("anon_max_age_days", payload.AnonMaxAgeDays),
+		zap.Int("auth_max_age_days", payload.AuthMaxAgeDays),
+	)
+
+	// Delete anonymous user jobs (user_id IS NULL or starts with 'anon:') older than AnonMaxAgeDays
+	anonResult, err := h.db.Pool.Exec(ctx, `
+		DELETE FROM jobs
+		WHERE status IN ('completed', 'failed', 'cancelled')
+		  AND created_at < NOW() - ($1 || ' days')::INTERVAL
+		  AND (user_id IS NULL OR user_id LIKE 'anon:%')
+	`, fmt.Sprintf("%d", payload.AnonMaxAgeDays))
+	if err != nil {
+		h.logger.Error("Failed to clean up anonymous stale jobs", zap.Error(err))
+	} else {
+		h.logger.Info("Cleaned up anonymous stale jobs", zap.Int64("deleted", anonResult.RowsAffected()))
+	}
+
+	// Delete authenticated user jobs older than AuthMaxAgeDays
+	authResult, err := h.db.Pool.Exec(ctx, `
+		DELETE FROM jobs
+		WHERE status IN ('completed', 'failed', 'cancelled')
+		  AND created_at < NOW() - ($1 || ' days')::INTERVAL
+		  AND user_id IS NOT NULL
+		  AND user_id NOT LIKE 'anon:%'
+	`, fmt.Sprintf("%d", payload.AuthMaxAgeDays))
+	if err != nil {
+		h.logger.Error("Failed to clean up authenticated stale jobs", zap.Error(err))
+	} else {
+		h.logger.Info("Cleaned up authenticated stale jobs", zap.Int64("deleted", authResult.RowsAffected()))
+	}
+
+	return nil
+}
+
+// HandleCleanupAnonProfiles removes anonymous user_profiles rows that have been inactive for a long time.
+// This prevents the user_profiles table from growing unbounded with stale anon:<uuid> entries.
+func (h *Handler) HandleCleanupAnonProfiles(ctx context.Context, task *asynq.Task) error {
+	var payload AnonProfileCleanupPayload
+	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	if payload.InactiveDays <= 0 {
+		payload.InactiveDays = 60
+	}
+
+	h.logger.Info("Cleaning up inactive anonymous profiles", zap.Int("inactive_days", payload.InactiveDays))
+
+	result, err := h.db.Pool.Exec(ctx, `
+		DELETE FROM user_profiles
+		WHERE user_id LIKE 'anon:%'
+		  AND COALESCE(updated_at, created_at, usage_period_start) < NOW() - ($1 || ' days')::INTERVAL
+	`, fmt.Sprintf("%d", payload.InactiveDays))
+	if err != nil {
+		h.logger.Error("Failed to clean up anonymous profiles", zap.Error(err))
+		return err
+	}
+
+	h.logger.Info("Anonymous profile cleanup completed", zap.Int64("deleted", result.RowsAffected()))
 	return nil
 }
 

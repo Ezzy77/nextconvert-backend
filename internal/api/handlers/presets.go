@@ -48,7 +48,7 @@ type CreatePresetRequest struct {
 // ListPresets returns the user's saved presets
 func (h *PresetsHandler) ListPresets(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	if user == nil || user.ID == "anonymous" {
+	if user == nil || user.IsAnonymous() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]UserPreset{})
 		return
@@ -113,7 +113,7 @@ func (h *PresetsHandler) ListPresets(w http.ResponseWriter, r *http.Request) {
 // CreatePreset saves a new user preset
 func (h *PresetsHandler) CreatePreset(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	if user == nil || user.ID == "anonymous" {
+	if user == nil || user.IsAnonymous() {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
@@ -166,7 +166,7 @@ func (h *PresetsHandler) CreatePreset(w http.ResponseWriter, r *http.Request) {
 // DeletePreset removes a user preset
 func (h *PresetsHandler) DeletePreset(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	if user == nil || user.ID == "anonymous" {
+	if user == nil || user.IsAnonymous() {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}

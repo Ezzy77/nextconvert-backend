@@ -177,6 +177,8 @@ func main() {
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(jobs.TypeMediaProcess, jobHandler.HandleMediaProcess)
 	mux.HandleFunc(jobs.TypeCleanupFiles, jobHandler.HandleCleanupFiles)
+	mux.HandleFunc(jobs.TypeCleanupStaleJobs, jobHandler.HandleCleanupStaleJobs)
+	mux.HandleFunc(jobs.TypeCleanupAnonProfiles, jobHandler.HandleCleanupAnonProfiles)
 
 	// Start cleanup scheduler (hourly - deletes files past 24h expiry)
 	scheduler, err := queueClient.ScheduleCleanup(cfg.RedisURL)

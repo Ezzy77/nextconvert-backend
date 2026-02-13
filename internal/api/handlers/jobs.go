@@ -45,10 +45,7 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 
 	// Use InputFileIDs if provided (merge), otherwise use single InputFileID
 	inputFileID := req.InputFileID
@@ -101,10 +98,7 @@ func (h *JobHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 // ListJobs returns the user's jobs
 func (h *JobHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
-	userID := "anonymous"
-	if user != nil {
-		userID = user.ID
-	}
+	userID := user.ID
 
 	status := r.URL.Query().Get("status")
 

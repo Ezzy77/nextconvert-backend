@@ -131,11 +131,6 @@ func (s *Server) Router() *chi.Mux {
 
 			// File management
 			r.Route("/files", func(r chi.Router) {
-				// Upload routes: rate limited per user + stricter anonymous IP limit
-				r.With(
-					rateLimiter.Limit(middleware.FileUploadRateLimit),
-					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
-				).Post("/upload", fileHandler.InitiateUpload)
 				r.With(
 					rateLimiter.Limit(middleware.FileUploadRateLimit),
 					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
@@ -145,8 +140,6 @@ func (s *Server) Router() *chi.Mux {
 					rateLimiter.Limit(middleware.AnonFileUploadRateLimit),
 				).Post("/upload/presign", fileHandler.GetPresignedUploadURL)
 				r.Post("/upload/confirm", fileHandler.ConfirmPresignedUpload)
-				r.Post("/upload/chunk", fileHandler.UploadChunk)
-				r.Post("/upload/complete", fileHandler.CompleteUpload)
 				r.Get("/", fileHandler.ListFiles)
 				r.Get("/{id}", fileHandler.GetFile)
 				r.Get("/{id}/download", fileHandler.DownloadFile)

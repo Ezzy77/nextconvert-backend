@@ -26,7 +26,6 @@ type MediaProcessOptions struct {
 	InputPath        string
 	OutputPath       string
 	Operations       []Operation
-	OnProgress       func(percent int, operation string)
 	UseHardwareAccel *bool
 }
 
@@ -34,7 +33,6 @@ type MediaProcessOptions struct {
 type MergeProcessOptions struct {
 	InputPaths       []string
 	OutputPath       string
-	OnProgress       func(percent int, operation string)
 	UseHardwareAccel *bool
 }
 
@@ -89,9 +87,9 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		zap.Bool("is_merge", isMerge),
 	)
 
-	// Update job status to processing
+	// Mark job as processing
 	if h.jobsModule != nil {
-		h.jobsModule.UpdateProgress(ctx, payload.JobID, 0, "Starting...", 0)
+		h.jobsModule.StartJob(ctx, payload.JobID)
 	}
 
 	var inputPath, outputPath string
@@ -166,40 +164,17 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 
 	useGPU := payload.UseGPU
 	if isMerge {
-		// Execute merge operation
 		err = h.mediaProcessor.ProcessMerge(ctx, MergeProcessOptions{
 			InputPaths:       payload.InputPaths,
 			OutputPath:       payload.OutputPath,
 			UseHardwareAccel: &useGPU,
-			OnProgress: func(percent int, operation string) {
-				h.logger.Debug("Merge processing progress",
-					zap.String("job_id", payload.JobID),
-					zap.Int("percent", percent),
-					zap.String("operation", operation),
-				)
-				if h.jobsModule != nil {
-					h.jobsModule.UpdateProgress(ctx, payload.JobID, percent, operation, 0)
-				}
-			},
 		})
 	} else {
-		// Execute regular media processing with progress callback
 		err = h.mediaProcessor.Process(ctx, MediaProcessOptions{
 			InputPath:        payload.InputPath,
 			OutputPath:       payload.OutputPath,
 			Operations:       payload.Operations,
 			UseHardwareAccel: &useGPU,
-			OnProgress: func(percent int, operation string) {
-				h.logger.Debug("Media processing progress",
-					zap.String("job_id", payload.JobID),
-					zap.Int("percent", percent),
-					zap.String("operation", operation),
-				)
-				// Update progress in jobs module (which broadcasts via WebSocket)
-				if h.jobsModule != nil {
-					h.jobsModule.UpdateProgress(ctx, payload.JobID, percent, operation, 0)
-				}
-			},
 		})
 	}
 

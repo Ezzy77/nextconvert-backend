@@ -400,8 +400,8 @@ func (m *Module) GetJobLogs(ctx context.Context, jobID string) ([]string, error)
 		logs = append(logs, fmt.Sprintf("[%s] Processing started", job.StartedAt.Format(time.RFC3339)))
 	}
 
-	if job.Progress.CurrentOperation != "" {
-		logs = append(logs, fmt.Sprintf("[%s] %s (%d%%)", time.Now().Format(time.RFC3339), job.Progress.CurrentOperation, job.Progress.Percent))
+	if job.Status == StatusProcessing {
+		logs = append(logs, fmt.Sprintf("[%s] Processing...", time.Now().Format(time.RFC3339)))
 	}
 
 	if job.CompletedAt != nil {
@@ -415,31 +415,17 @@ func (m *Module) GetJobLogs(ctx context.Context, jobID string) ([]string, error)
 	return logs, nil
 }
 
-// UpdateProgress updates job progress
-func (m *Module) UpdateProgress(ctx context.Context, jobID string, percent int, operation string, eta int) error {
-	progress := Progress{
-		Percent:          percent,
-		CurrentOperation: operation,
-		ETA:              eta,
-	}
-	progressJSON, _ := json.Marshal(progress)
-
+// StartJob marks a job as processing
+func (m *Module) StartJob(ctx context.Context, jobID string) error {
 	_, err := m.db.Pool.Exec(ctx, `
-		UPDATE jobs SET progress = $1, status = $2, started_at = COALESCE(started_at, NOW()) WHERE id = $3
-	`, progressJSON, StatusProcessing, jobID)
+		UPDATE jobs SET status = $1, started_at = COALESCE(started_at, NOW()) WHERE id = $2
+	`, StatusProcessing, jobID)
 	if err != nil {
 		return err
 	}
 
-	// Update cache
 	if job, ok := m.jobs[jobID]; ok {
-		job.Progress = progress
 		job.Status = StatusProcessing
-	}
-
-	// Notify via WebSocket (if hub available)
-	if m.wsHub != nil {
-		m.wsHub.BroadcastJobProgress(jobID, percent, operation, eta)
 	}
 
 	return nil

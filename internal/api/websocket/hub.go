@@ -24,14 +24,6 @@ type Message struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
-// JobProgressPayload represents a job progress update
-type JobProgressPayload struct {
-	JobID            string `json:"jobId"`
-	Percent          int    `json:"percent"`
-	CurrentOperation string `json:"currentOperation,omitempty"`
-	ETA              int    `json:"eta,omitempty"`
-}
-
 // JobCompletedPayload represents a job completion
 type JobCompletedPayload struct {
 	JobID        string `json:"jobId"`
@@ -164,16 +156,6 @@ func (h *Hub) SendToJob(jobID string, msgType string, payload interface{}) error
 	}
 
 	return nil
-}
-
-// BroadcastJobProgress sends a progress update
-func (h *Hub) BroadcastJobProgress(jobID string, percent int, operation string, eta int) {
-	h.SendToJob(jobID, "job:progress", JobProgressPayload{
-		JobID:            jobID,
-		Percent:          percent,
-		CurrentOperation: operation,
-		ETA:              eta,
-	})
 }
 
 // BroadcastJobCompleted sends a completion notification

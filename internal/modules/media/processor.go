@@ -1,11 +1,9 @@
 package media
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -33,12 +31,11 @@ type ProcessorConfig struct {
 
 // ProcessOptions contains options for media processing
 type ProcessOptions struct {
-	InputPath         string
-	InputPaths        []string // For merge operations with multiple inputs
-	OutputPath        string
-	Operations        []Operation
-	OnProgress        func(percent int, operation string)
-	UseHardwareAccel  *bool    // Override processor default (e.g. for Pro tier)
+	InputPath        string
+	InputPaths       []string // For merge operations with multiple inputs
+	OutputPath       string
+	Operations       []Operation
+	UseHardwareAccel *bool // Override processor default (e.g. for Pro tier)
 }
 
 // NewProcessor creates a new media processor with cloud-friendly defaults
@@ -98,21 +95,7 @@ func (p *Processor) Process(ctx context.Context, opts ProcessOptions) error {
 	)
 
 	cmd := exec.CommandContext(ctx, p.ffmpegPath, args...)
-
-	// Capture stderr for progress
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start FFmpeg: %w", err)
-	}
-
-	// Parse progress from stderr
-	go p.parseProgress(stderr, opts.OnProgress)
-
-	if err := cmd.Wait(); err != nil {
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("FFmpeg execution failed: %w", err)
 	}
 
@@ -122,10 +105,9 @@ func (p *Processor) Process(ctx context.Context, opts ProcessOptions) error {
 // processMerge handles video merging using FFmpeg concat demuxer
 // MergeOptions contains options for merging videos
 type MergeOptions struct {
-	InputPaths        []string
-	OutputPath        string
-	OnProgress        func(percent int, operation string)
-	UseHardwareAccel  *bool
+	InputPaths       []string
+	OutputPath       string
+	UseHardwareAccel *bool
 }
 
 // ProcessMerge merges multiple videos into one (public interface method)
@@ -133,7 +115,6 @@ func (p *Processor) ProcessMerge(ctx context.Context, opts MergeOptions) error {
 	return p.processMerge(ctx, ProcessOptions{
 		InputPaths:       opts.InputPaths,
 		OutputPath:       opts.OutputPath,
-		OnProgress:       opts.OnProgress,
 		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }
@@ -228,19 +209,7 @@ func (p *Processor) processMerge(ctx context.Context, opts ProcessOptions) error
 	)
 
 	cmd := exec.CommandContext(ctx, p.ffmpegPath, args...)
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start FFmpeg: %w", err)
-	}
-
-	go p.parseProgress(stderr, opts.OnProgress)
-
-	if err := cmd.Wait(); err != nil {
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("FFmpeg merge failed: %w", err)
 	}
 
@@ -298,16 +267,43 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			}
 
 		case "compress":
-			quality := getIntParam(op.Params, "quality", 70)
-			// Convert quality (1-100) to CRF (0-51, lower is better)
-			crf := 51 - (quality * 51 / 100)
-			args = append(args, "-crf", strconv.Itoa(crf))
-			// Add codec with fast preset for compression
-			if p.useHWAccel(&opts) {
-				// Try macOS VideoToolbox hardware encoder (very fast, low CPU)
-				args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
+			codec := getStringParam(op.Params, "codec", "h264")
+			method := getStringParam(op.Params, "method", "percentage")
+
+			if method == "percentage" {
+				targetPercent := getIntParam(op.Params, "targetPercent", 60)
+				if targetPercent < 1 {
+					targetPercent = 1
+				} else if targetPercent > 100 {
+					targetPercent = 100
+				}
+				// Map percentage to CRF: 5% -> CRF 45, 100% -> CRF 10 (near-lossless)
+				// Linear interpolation: lower percentage = higher CRF = more compression
+				crf := 45 - (targetPercent-1)*35/99
+				args = append(args, "-crf", strconv.Itoa(crf))
 			} else {
-				args = append(args, "-c:v", "libx264", "-preset", preset, "-c:a", "aac")
+				// quality method: value is CRF directly (18=high, 28=medium, 40=low)
+				crf := getIntParam(op.Params, "quality", 28)
+				if crf < 0 {
+					crf = 0
+				} else if crf > 51 {
+					crf = 51
+				}
+				args = append(args, "-crf", strconv.Itoa(crf))
+			}
+
+			if codec == "h265" {
+				if p.useHWAccel(&opts) {
+					args = append(args, "-c:v", "hevc_videotoolbox", "-c:a", "aac")
+				} else {
+					args = append(args, "-c:v", "libx265", "-preset", preset, "-tag:v", "hvc1", "-c:a", "aac")
+				}
+			} else {
+				if p.useHWAccel(&opts) {
+					args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
+				} else {
+					args = append(args, "-c:v", "libx264", "-preset", preset, "-c:a", "aac")
+				}
 			}
 
 		case "convertFormat":
@@ -492,97 +488,10 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 				videoFilters = append(videoFilters, filter)
 			}
 
-		case "filters":
-			// Video filter adjustments using FFmpeg eq filter
-			brightness := getFloatParam(op.Params, "brightness", 0)  // -1 to 1 (0 = no change)
-			contrast := getFloatParam(op.Params, "contrast", 1)      // 0 to 2 (1 = no change)
-			saturation := getFloatParam(op.Params, "saturation", 1)  // 0 to 3 (1 = no change)
-			gamma := getFloatParam(op.Params, "gamma", 1)            // 0.1 to 10 (1 = no change)
-			hue := getFloatParam(op.Params, "hue", 0)                // -180 to 180 degrees (0 = no change)
-			blur := getFloatParam(op.Params, "blur", 0)              // 0 to 10 (0 = no blur)
-			sharpen := getFloatParam(op.Params, "sharpen", 0)        // 0 to 5 (0 = no sharpen)
-			vignette := getBoolParam(op.Params, "vignette", false)   // Add vignette effect
-			grayscale := getBoolParam(op.Params, "grayscale", false) // Convert to grayscale
-			sepia := getBoolParam(op.Params, "sepia", false)         // Apply sepia tone
-			negative := getBoolParam(op.Params, "negative", false)   // Invert colors
-
-			// Build eq filter for brightness, contrast, saturation, gamma
-			eqParts := []string{}
-			if brightness != 0 {
-				eqParts = append(eqParts, fmt.Sprintf("brightness=%.2f", brightness))
-			}
-			if contrast != 1 {
-				eqParts = append(eqParts, fmt.Sprintf("contrast=%.2f", contrast))
-			}
-			if saturation != 1 {
-				eqParts = append(eqParts, fmt.Sprintf("saturation=%.2f", saturation))
-			}
-			if gamma != 1 {
-				eqParts = append(eqParts, fmt.Sprintf("gamma=%.2f", gamma))
-			}
-			if len(eqParts) > 0 {
-				videoFilters = append(videoFilters, "eq="+strings.Join(eqParts, ":"))
-			}
-
-			// Hue adjustment
-			if hue != 0 {
-				videoFilters = append(videoFilters, fmt.Sprintf("hue=h=%.1f", hue))
-			}
-
-			// Blur effect (using boxblur)
-			if blur > 0 {
-				blurRadius := int(blur * 2) // Scale for more visible effect
-				if blurRadius < 1 {
-					blurRadius = 1
-				}
-				videoFilters = append(videoFilters, fmt.Sprintf("boxblur=%d:%d", blurRadius, blurRadius))
-			}
-
-			// Sharpen effect (using unsharp mask)
-			if sharpen > 0 {
-				// unsharp=lx:ly:la where l=luma, a=amount
-				amount := sharpen * 1.5 // Scale for better effect
-				videoFilters = append(videoFilters, fmt.Sprintf("unsharp=5:5:%.1f:5:5:0", amount))
-			}
-
-			// Vignette effect
-			if vignette {
-				videoFilters = append(videoFilters, "vignette=PI/4")
-			}
-
-			// Grayscale
-			if grayscale {
-				videoFilters = append(videoFilters, "colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3")
-			}
-
-			// Sepia tone (apply after grayscale-like transform)
-			if sepia {
-				videoFilters = append(videoFilters, "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131")
-			}
-
-			// Negative/Invert colors
-			if negative {
-				videoFilters = append(videoFilters, "negate")
-			}
-
 		case "split":
 			// Split is handled separately in processSplit method
 			// This case is here to avoid "unknown operation" errors
 			// The actual split logic extracts segments at specific times
-
-		case "thumbnail":
-			// Thumbnail generation - extract frame(s) as image(s)
-			// This is handled specially since output is image not video
-			timestamp := getStringParam(op.Params, "timestamp", "00:00:01")
-			width := getIntParam(op.Params, "width", 320)
-
-			// For thumbnail, we override the entire args since it's different
-			args = []string{"-ss", timestamp, "-i", opts.InputPath}
-			args = append(args, "-vframes", "1")
-			args = append(args, "-vf", fmt.Sprintf("scale=%d:-1", width))
-			args = append(args, "-q:v", "2") // High quality JPEG
-			args = append(args, opts.OutputPath)
-			return args // Return early for thumbnail
 
 		case "addAudio":
 			// Add/replace audio track
@@ -710,38 +619,6 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			// Strip audio track from video
 			args = append(args, "-an")
 
-		case "reverse":
-			// Reverse video playback
-			videoFilters = append(videoFilters, "reverse")
-			audioFilters = append(audioFilters, "areverse")
-
-		case "loop":
-			// Loop video N times
-			loopCount := getIntParam(op.Params, "count", 2)
-			args = append(args, "-stream_loop", fmt.Sprintf("%d", loopCount-1))
-
-		case "fade":
-			// Video fade in/out transitions
-			fadeIn := getFloatParam(op.Params, "fadeIn", 0)
-			fadeOut := getFloatParam(op.Params, "fadeOut", 0)
-			duration := getFloatParam(op.Params, "duration", 0) // Total video duration for fade out calculation
-			fadeColor := getStringParam(op.Params, "color", "black")
-
-			if fadeIn > 0 {
-				// Fade in from color at start
-				videoFilters = append(videoFilters, fmt.Sprintf("fade=t=in:st=0:d=%.2f:color=%s", fadeIn, fadeColor))
-				audioFilters = append(audioFilters, fmt.Sprintf("afade=t=in:st=0:d=%.2f", fadeIn))
-			}
-			if fadeOut > 0 && duration > 0 {
-				// Fade out to color at end
-				fadeOutStart := duration - fadeOut
-				if fadeOutStart < 0 {
-					fadeOutStart = 0
-				}
-				videoFilters = append(videoFilters, fmt.Sprintf("fade=t=out:st=%.2f:d=%.2f:color=%s", fadeOutStart, fadeOut, fadeColor))
-				audioFilters = append(audioFilters, fmt.Sprintf("afade=t=out:st=%.2f:d=%.2f", fadeOutStart, fadeOut))
-			}
-
 		case "frameRate":
 			// Change video frame rate
 			fps := getIntParam(op.Params, "fps", 30)
@@ -757,23 +634,6 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			default:
 				// Simple frame duplication/dropping
 				videoFilters = append(videoFilters, fmt.Sprintf("fps=%d", fps))
-			}
-
-		case "normalize":
-			// Audio normalization
-			normType := getStringParam(op.Params, "type", "loudnorm")
-			targetLevel := getFloatParam(op.Params, "targetLevel", -14) // LUFS for loudnorm
-
-			switch normType {
-			case "loudnorm":
-				// EBU R128 loudness normalization (broadcast standard)
-				audioFilters = append(audioFilters, fmt.Sprintf("loudnorm=I=%.1f:TP=-1.5:LRA=11", targetLevel))
-			case "dynaudnorm":
-				// Dynamic audio normalization (adjusts volume in real-time)
-				audioFilters = append(audioFilters, "dynaudnorm=p=0.9:s=5")
-			case "peak":
-				// Peak normalization to 0dB
-				audioFilters = append(audioFilters, "acompressor=threshold=0.5:ratio=2:attack=5:release=50,volume=2dB")
 			}
 
 		case "noiseReduction":
@@ -874,29 +734,6 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 
 	args = append(args, opts.OutputPath)
 	return args
-}
-
-func (p *Processor) parseProgress(stderr interface{ Read([]byte) (int, error) }, onProgress func(int, string)) {
-	if onProgress == nil {
-		return
-	}
-
-	scanner := bufio.NewScanner(stderr)
-	progressRegex := regexp.MustCompile(`time=(\d+):(\d+):(\d+)\.(\d+)`)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		matches := progressRegex.FindStringSubmatch(line)
-		if len(matches) > 0 {
-			// Parse time and calculate progress
-			// This is a simplified version; real implementation would need total duration
-			hours, _ := strconv.Atoi(matches[1])
-			minutes, _ := strconv.Atoi(matches[2])
-			seconds, _ := strconv.Atoi(matches[3])
-			totalSeconds := hours*3600 + minutes*60 + seconds
-			_ = totalSeconds // Use for progress calculation
-		}
-	}
 }
 
 // Probe extracts metadata using ffprobe

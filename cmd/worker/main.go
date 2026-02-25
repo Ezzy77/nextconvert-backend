@@ -44,7 +44,6 @@ func (a *mediaProcessorAdapter) Process(ctx context.Context, opts jobs.MediaProc
 		InputPath:        opts.InputPath,
 		OutputPath:       opts.OutputPath,
 		Operations:       operations,
-		OnProgress:       opts.OnProgress,
 		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }
@@ -53,7 +52,6 @@ func (a *mediaProcessorAdapter) ProcessMerge(ctx context.Context, opts jobs.Merg
 	return a.processor.ProcessMerge(ctx, media.MergeOptions{
 		InputPaths:       opts.InputPaths,
 		OutputPath:       opts.OutputPath,
-		OnProgress:       opts.OnProgress,
 		UseHardwareAccel: opts.UseHardwareAccel,
 	})
 }

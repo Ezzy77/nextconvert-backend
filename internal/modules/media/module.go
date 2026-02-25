@@ -334,12 +334,13 @@ func (m *Module) ValidateOperations(operations []Operation, inputType string) Va
 	for _, op := range operations {
 		switch op.Type {
 		case "trim", "resize", "compress", "convertFormat", "rotate", "crop",
-			"addWatermark", "addSubtitles", "extractAudio", "changeSpeed", "createGif":
+			"addWatermark", "addSubtitles", "extractAudio", "changeSpeed", "createGif",
+			"addText", "removeAudio", "addAudio", "split", "frameRate", "noiseReduction":
 			// Valid video operations
 			if inputType != "video" && inputType != "" {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("Operation '%s' is intended for video", op.Type))
 			}
-		case "changeBitrate", "adjustVolume", "fadeInOut", "merge", "removeSilence":
+		case "changeBitrate", "adjustVolume", "fadeInOut", "merge", "removeSilence", "convertAudioFormat":
 			// Valid audio operations
 			if inputType != "audio" && inputType != "" {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("Operation '%s' is intended for audio", op.Type))

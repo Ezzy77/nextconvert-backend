@@ -714,8 +714,9 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 		}
 	}
 
-	// If no video codec was specified, add optimized default
-	if !hasVideoCodec && len(videoFilters) > 0 {
+	// If no video codec was specified, add optimized default (skip for GIF output)
+	isGif := strings.HasSuffix(strings.ToLower(opts.OutputPath), ".gif")
+	if !hasVideoCodec && len(videoFilters) > 0 && !isGif {
 		if p.useHWAccel(&opts) {
 			args = append(args, "-c:v", "h264_videotoolbox", "-c:a", "aac")
 		} else {

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hibiken/asynq"
 	"github.com/nextconvert/backend/internal/shared/database"
 	"github.com/nextconvert/backend/internal/shared/storage"
-	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
 
@@ -142,6 +142,26 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 			payload.InputPath = inputPath
 		}
 		payload.OutputPath = outputPath
+
+		// Download addAudio auxiliary files (audio track) to local temp for FFmpeg
+		for i := range payload.Operations {
+			if payload.Operations[i].Type == "addAudio" {
+				if audioPath, ok := payload.Operations[i].Params["audioPath"].(string); ok && audioPath != "" {
+					localAudio, cleanup, err := h.storage.PrepareInputForProcessing(ctx, audioPath)
+					if err != nil {
+						for _, c := range cleanups {
+							c()
+						}
+						if h.jobsModule != nil {
+							h.jobsModule.FailJob(ctx, payload.JobID, fmt.Errorf("failed to prepare audio file: %w", err), true)
+						}
+						return err
+					}
+					cleanups = append(cleanups, cleanup)
+					payload.Operations[i].Params["audioPath"] = localAudio
+				}
+			}
+		}
 	} else {
 		// Local: ensure output directory exists
 		outputDir := filepath.Dir(payload.OutputPath)

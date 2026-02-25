@@ -533,23 +533,6 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			// Strip audio track from video
 			args = append(args, "-an")
 
-		case "frameRate":
-			// Change video frame rate
-			fps := getIntParam(op.Params, "fps", 30)
-			interpolation := getStringParam(op.Params, "interpolation", "duplicate")
-
-			switch interpolation {
-			case "blend":
-				// Blend frames for smoother motion (motion blur effect)
-				videoFilters = append(videoFilters, fmt.Sprintf("minterpolate=fps=%d:mi_mode=blend", fps))
-			case "motion":
-				// Motion interpolation for smoother slow-mo
-				videoFilters = append(videoFilters, fmt.Sprintf("minterpolate=fps=%d:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1", fps))
-			default:
-				// Simple frame duplication/dropping
-				videoFilters = append(videoFilters, fmt.Sprintf("fps=%d", fps))
-			}
-
 		case "noiseReduction":
 			// Noise reduction for video (hqdn3d) and/or audio (afftdn)
 			strength := getStringParam(op.Params, "strength", "medium") // low, medium, high

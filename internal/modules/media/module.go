@@ -335,7 +335,7 @@ func (m *Module) ValidateOperations(operations []Operation, inputType string) Va
 		switch op.Type {
 		case "trim", "resize", "compress", "convertFormat", "rotate", "crop",
 			"addWatermark", "addSubtitles", "extractAudio", "changeSpeed", "createGif",
-			"removeAudio", "addAudio", "split", "frameRate", "noiseReduction":
+			"removeAudio", "addAudio", "split", "noiseReduction":
 			// Valid video operations
 			if inputType != "video" && inputType != "" {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("Operation '%s' is intended for video", op.Type))

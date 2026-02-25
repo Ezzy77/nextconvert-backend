@@ -314,6 +314,9 @@ func (m *Module) ListJobs(ctx context.Context, userID, status, jobType string) (
 	return jobs, nil
 }
 
+const cancelKeyPrefix = "job:cancel:"
+const cancelKeyTTL = 1 * time.Hour
+
 // CancelJob cancels a job
 func (m *Module) CancelJob(ctx context.Context, jobID string) error {
 	job, err := m.GetJob(ctx, jobID)
@@ -323,6 +326,11 @@ func (m *Module) CancelJob(ctx context.Context, jobID string) error {
 
 	if job.Status == StatusCompleted || job.Status == StatusCancelled {
 		return fmt.Errorf("job cannot be cancelled: status is %s", job.Status)
+	}
+
+	// Signal worker to interrupt FFmpeg (worker polls this key)
+	if m.redis != nil {
+		_ = m.redis.Set(ctx, cancelKeyPrefix+jobID, "1", cancelKeyTTL)
 	}
 
 	now := time.Now()

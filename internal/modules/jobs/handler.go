@@ -180,17 +180,39 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 		}
 	}()
 
-	var err error
+	// Use cancellable context so we can interrupt FFmpeg when user cancels
+	procCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
+	// Poll Redis for cancel request; when found, cancel context (kills FFmpeg via exec.CommandContext)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-procCtx.Done():
+				return
+			case <-ticker.C:
+				val, err := h.redis.Get(ctx, cancelKeyPrefix+payload.JobID)
+				if err == nil && val == "1" {
+					h.logger.Info("Job cancel requested, interrupting", zap.String("job_id", payload.JobID))
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	var err error
 	useGPU := payload.UseGPU
 	if isMerge {
-		err = h.mediaProcessor.ProcessMerge(ctx, MergeProcessOptions{
+		err = h.mediaProcessor.ProcessMerge(procCtx, MergeProcessOptions{
 			InputPaths:       payload.InputPaths,
 			OutputPath:       payload.OutputPath,
 			UseHardwareAccel: &useGPU,
 		})
 	} else {
-		err = h.mediaProcessor.Process(ctx, MediaProcessOptions{
+		err = h.mediaProcessor.Process(procCtx, MediaProcessOptions{
 			InputPath:        payload.InputPath,
 			OutputPath:       payload.OutputPath,
 			Operations:       payload.Operations,
@@ -199,6 +221,11 @@ func (h *Handler) HandleMediaProcess(ctx context.Context, task *asynq.Task) erro
 	}
 
 	if err != nil {
+		// If context was cancelled, job was already marked cancelled by API - don't overwrite with failed
+		if procCtx.Err() != nil {
+			h.logger.Info("Job interrupted by user", zap.String("job_id", payload.JobID))
+			return nil
+		}
 		h.logger.Error("Media processing failed",
 			zap.String("job_id", payload.JobID),
 			zap.Error(err),

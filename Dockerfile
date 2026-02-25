@@ -43,13 +43,16 @@ CMD ["/app/server"]
 # Worker runtime stage
 FROM --platform=linux/amd64 alpine:3.19 AS worker
 
-# Install runtime dependencies - FFmpeg and fonts for watermarks
+# Install runtime dependencies - FFmpeg and fonts for text overlays
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     ffmpeg \
     ttf-dejavu \
-    fontconfig
+    ttf-liberation \
+    font-noto \
+    fontconfig \
+    && fc-cache -f
 
 WORKDIR /app
 

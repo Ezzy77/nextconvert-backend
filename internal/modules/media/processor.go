@@ -530,75 +530,123 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 			}
 
 		case "addText":
-			// Add text overlay (similar to watermark but with more options)
 			text := getStringParam(op.Params, "text", "")
 			if text != "" {
 				position := getStringParam(op.Params, "position", "center")
-				fontSize := getIntParam(op.Params, "fontSize", 48)
 				fontColor := getStringParam(op.Params, "fontColor", "white")
+				fontFamily := getStringParam(op.Params, "fontFamily", "sans-bold")
 				bgColor := getStringParam(op.Params, "bgColor", "")
 				bgOpacity := getFloatParam(op.Params, "bgOpacity", 0.5)
+				bgPadding := getIntParam(op.Params, "bgPadding", 12)
 				startTime := getFloatParam(op.Params, "startTime", 0)
-				endTime := getFloatParam(op.Params, "endTime", 0) // 0 means entire video
+				endTime := getFloatParam(op.Params, "endTime", 0)
 				animation := getStringParam(op.Params, "animation", "none")
+				outlineWidth := getIntParam(op.Params, "outlineWidth", 0)
+				outlineColor := getStringParam(op.Params, "outlineColor", "black")
+				shadowX := getIntParam(op.Params, "shadowX", 0)
+				shadowY := getIntParam(op.Params, "shadowY", 0)
+				shadowColor := getStringParam(op.Params, "shadowColor", "black@0.6")
+				lineSpacing := getIntParam(op.Params, "lineSpacing", 0)
 
-				// Map position to coordinates
+				// Font size: relative to video height (percentage) or absolute pixels
+				// fontSizePercent (e.g. 5 = 5% of video height) takes priority
+				fontSizePercent := getFloatParam(op.Params, "fontSizePercent", 0)
+				fontSize := getIntParam(op.Params, "fontSize", 48)
+				var fontSizeExpr string
+				if fontSizePercent > 0 {
+					fontSizeExpr = fmt.Sprintf("h*%.4f", fontSizePercent/100.0)
+				} else {
+					fontSizeExpr = strconv.Itoa(fontSize)
+				}
+
+				// Map font family to file path (available in Alpine Docker with ttf-dejavu + ttf-liberation + font-noto)
+				fontFile := "/usr/share/fonts/ttf-dejavu/DejaVuSans-Bold.ttf"
+				switch fontFamily {
+				case "sans":
+					fontFile = "/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf"
+				case "sans-bold":
+					fontFile = "/usr/share/fonts/ttf-dejavu/DejaVuSans-Bold.ttf"
+				case "serif":
+					fontFile = "/usr/share/fonts/ttf-liberation/LiberationSerif-Regular.ttf"
+				case "serif-bold":
+					fontFile = "/usr/share/fonts/ttf-liberation/LiberationSerif-Bold.ttf"
+				case "mono":
+					fontFile = "/usr/share/fonts/ttf-dejavu/DejaVuSansMono.ttf"
+				case "mono-bold":
+					fontFile = "/usr/share/fonts/ttf-dejavu/DejaVuSansMono-Bold.ttf"
+				}
+
+				// Padding expression scales with font size for consistent spacing
+				padding := "20"
+				if fontSizePercent > 0 {
+					padding = fmt.Sprintf("h*%.4f", fontSizePercent/200.0)
+				}
+
+				// Map position to coordinate expressions
 				var x, y string
 				switch position {
 				case "topleft":
-					x, y = "20", "20"
+					x, y = padding, padding
 				case "topcenter":
-					x, y = "(w-tw)/2", "20"
+					x, y = "(w-tw)/2", padding
 				case "topright":
-					x, y = "w-tw-20", "20"
+					x, y = "w-tw-"+padding, padding
 				case "centerleft":
-					x, y = "20", "(h-th)/2"
+					x, y = padding, "(h-th)/2"
 				case "center":
 					x, y = "(w-tw)/2", "(h-th)/2"
 				case "centerright":
-					x, y = "w-tw-20", "(h-th)/2"
+					x, y = "w-tw-"+padding, "(h-th)/2"
 				case "bottomleft":
-					x, y = "20", "h-th-20"
+					x, y = padding, "h-th-"+padding
 				case "bottomcenter":
-					x, y = "(w-tw)/2", "h-th-20"
+					x, y = "(w-tw)/2", "h-th-"+padding
 				case "bottomright":
-					x, y = "w-tw-20", "h-th-20"
+					x, y = "w-tw-"+padding, "h-th-"+padding
 				default:
 					x, y = "(w-tw)/2", "(h-th)/2"
 				}
 
-				// Apply animation to position
+				// Override position for scroll animations
 				switch animation {
 				case "scrollLeft":
-					x = fmt.Sprintf("w-%d*t", fontSize*2) // Scroll from right to left
+					x = "w-w*t/5"
 				case "scrollRight":
-					x = fmt.Sprintf("-%d+%d*t", fontSize*5, fontSize*2) // Scroll from left to right
+					x = "-tw+w*t/5"
 				case "scrollUp":
-					y = fmt.Sprintf("h-%d*t", fontSize) // Scroll from bottom to top
+					y = "h-h*t/5"
 				case "scrollDown":
-					y = fmt.Sprintf("-%d+%d*t", fontSize*2, fontSize) // Scroll from top to bottom
-				case "fadeIn":
-					// Fade handled via alpha
+					y = "-th+h*t/5"
 				}
 
-				// Escape special characters
+				// Escape text for FFmpeg drawtext
 				escapedText := text
 				escapedText = strings.ReplaceAll(escapedText, "\\", "\\\\")
 				escapedText = strings.ReplaceAll(escapedText, "'", "'\\''")
 				escapedText = strings.ReplaceAll(escapedText, ":", "\\:")
+				escapedText = strings.ReplaceAll(escapedText, "%", "%%")
 
-				// Build filter
 				filter := fmt.Sprintf(
-					"drawtext=text='%s':fontfile=/usr/share/fonts/ttf-dejavu/DejaVuSans-Bold.ttf:fontsize=%d:fontcolor=%s:x=%s:y=%s",
-					escapedText, fontSize, fontColor, x, y,
+					"drawtext=text='%s':fontfile=%s:fontsize=%s:fontcolor=%s:x=%s:y=%s",
+					escapedText, fontFile, fontSizeExpr, fontColor, x, y,
 				)
 
-				// Add background box if specified
-				if bgColor != "" {
-					filter += fmt.Sprintf(":box=1:boxcolor=%s@%.2f:boxborderw=10", bgColor, bgOpacity)
+				if outlineWidth > 0 {
+					filter += fmt.Sprintf(":borderw=%d:bordercolor=%s", outlineWidth, outlineColor)
 				}
 
-				// Add time constraints
+				if shadowX != 0 || shadowY != 0 {
+					filter += fmt.Sprintf(":shadowx=%d:shadowy=%d:shadowcolor=%s", shadowX, shadowY, shadowColor)
+				}
+
+				if lineSpacing > 0 {
+					filter += fmt.Sprintf(":line_spacing=%d", lineSpacing)
+				}
+
+				if bgColor != "" {
+					filter += fmt.Sprintf(":box=1:boxcolor=%s@%.2f:boxborderw=%d", bgColor, bgOpacity, bgPadding)
+				}
+
 				if startTime > 0 || endTime > 0 {
 					if endTime > 0 {
 						filter += fmt.Sprintf(":enable='between(t,%.2f,%.2f)'", startTime, endTime)
@@ -607,9 +655,10 @@ func (p *Processor) buildFFmpegArgs(opts ProcessOptions) []string {
 					}
 				}
 
-				// Add fade animation
 				if animation == "fadeIn" {
 					filter += ":alpha='if(lt(t,1),t,1)'"
+				} else if animation == "fadeInOut" && endTime > 0 {
+					filter += fmt.Sprintf(":alpha='if(lt(t,%.2f+1),t-%.2f,if(gt(t,%.2f-1),%.2f-t,1))'", startTime, startTime, endTime, endTime)
 				}
 
 				videoFilters = append(videoFilters, filter)

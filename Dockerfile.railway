@@ -26,7 +26,10 @@ RUN apk add --no-cache \
     tzdata \
     ffmpeg \
     ttf-dejavu \
-    fontconfig
+    ttf-liberation \
+    font-noto \
+    fontconfig \
+    && fc-cache -f
 
 # Create non-root user
 RUN adduser -D -g '' appuser

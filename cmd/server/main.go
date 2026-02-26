@@ -77,7 +77,7 @@ func main() {
 	logger.Info("Storage initialized successfully", zap.String("backend", cfg.Storage.Backend))
 
 	// Initialize WebSocket hub
-	wsHub := websocket.NewHub(logger)
+	wsHub := websocket.NewHub(logger, cfg.AllowedOrigins)
 	go wsHub.Run()
 
 	// Initialize job queue client

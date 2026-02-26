@@ -83,7 +83,7 @@ func Load() (*Config, error) {
 		FFmpegFastPresets:   getEnvBool("FFMPEG_FAST_PRESETS", true),    // Default: use fast presets for quicker processing
 		WorkerConcurrency:   getEnvInt("WORKER_CONCURRENCY", 2),
 		ClerkSecretKey:      getEnv("CLERK_SECRET_KEY", ""),
-		AllowedOrigins:      getEnvSlice("ALLOWED_ORIGINS", "http://localhost:5173"),
+		AllowedOrigins:      getEnvSlice("ALLOWED_ORIGINS", "http://localhost:5173,https://www.nexconvert.app,https://nexconvert.app"),
 		MaxUploadSize:       getEnvInt64("MAX_UPLOAD_SIZE", 5*1024*1024*1024), // 5GB
 		MaxJobsPerUser:      getEnvInt("MAX_JOBS_PER_USER", 20),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),

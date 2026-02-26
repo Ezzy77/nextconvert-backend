@@ -9,12 +9,11 @@ import (
 	"go.uber.org/zap"
 )
 
-var upgrader = websocket.Upgrader{
+var defaultUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// TODO: Implement proper origin checking
-		return true
+		return true // Overridden by Hub.upgrader when allowedOrigins set
 	},
 }
 
@@ -47,22 +46,37 @@ type Client struct {
 
 // Hub manages WebSocket connections
 type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	logger     *zap.Logger
-	mu         sync.RWMutex
+	clients        map[*Client]bool
+	broadcast      chan []byte
+	register       chan *Client
+	unregister     chan *Client
+	logger         *zap.Logger
+	allowedOrigins []string
+	upgrader       websocket.Upgrader
+	mu             sync.RWMutex
 }
 
 // NewHub creates a new WebSocket hub
-func NewHub(logger *zap.Logger) *Hub {
+func NewHub(logger *zap.Logger, allowedOrigins []string) *Hub {
+	upgrader := defaultUpgrader
+	if len(allowedOrigins) > 0 {
+		origins := make(map[string]bool)
+		for _, o := range allowedOrigins {
+			origins[o] = true
+		}
+		upgrader.CheckOrigin = func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			return origins[origin]
+		}
+	}
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		logger:     logger,
+		clients:        make(map[*Client]bool),
+		broadcast:      make(chan []byte),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		logger:         logger,
+		allowedOrigins: allowedOrigins,
+		upgrader:       upgrader,
 	}
 }
 
@@ -102,7 +116,7 @@ func (h *Hub) Run() {
 
 // HandleConnection handles a new WebSocket connection
 func (h *Hub) HandleConnection(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error("WebSocket upgrade failed", zap.Error(err))
 		return

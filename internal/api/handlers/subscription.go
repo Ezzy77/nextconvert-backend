@@ -56,6 +56,11 @@ func (h *SubscriptionHandler) CreateCheckout(w http.ResponseWriter, r *http.Requ
 	h.stripe.CreateCheckoutSession(w, r)
 }
 
+// GetPrices returns Stripe prices (public, no auth required)
+func (h *SubscriptionHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
+	h.stripe.GetPrices(w, r)
+}
+
 // CreatePortal delegates to Stripe handler
 func (h *SubscriptionHandler) CreatePortal(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())

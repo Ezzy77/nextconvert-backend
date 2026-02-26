@@ -70,12 +70,15 @@ func (s *Server) Router() *chi.Mux {
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.Compress(5))
 
-	// CORS - allow all origins for now, enable credentials for anonymous cookie tracking.
-	// AllowOriginFunc dynamically returns true for any origin, causing go-chi/cors to
-	// reflect the actual request Origin back (browsers reject literal "*" with credentials).
+	// CORS - lock down to configured origins (production: nexconvert.app, dev: localhost)
 	r.Use(cors.Handler(cors.Options{
-		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			return true // Allow all origins; lock down to s.config.AllowedOrigins later
+		AllowOriginFunc: func(req *http.Request, origin string) bool {
+			for _, allowed := range s.config.AllowedOrigins {
+				if allowed == origin {
+					return true
+				}
+			}
+			return false
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Range"},
@@ -83,6 +86,9 @@ func (s *Server) Router() *chi.Mux {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	// Security headers
+	r.Use(middleware.SecurityHeaders)
 
 	// Create rate limiter
 	rateLimiter := middleware.NewRateLimiter(s.redis.Client, s.logger)
@@ -124,6 +130,9 @@ func (s *Server) Router() *chi.Mux {
 		// Stripe webhook (no auth - verified by signature, rate limited)
 		r.With(rateLimiter.Limit(middleware.WebhookRateLimit)).
 			Post("/webhooks/stripe", stripeHandler.HandleWebhook)
+
+		// Subscription prices (public - pricing page loads before sign-in)
+		r.Get("/subscription/prices", subscriptionHandler.GetPrices)
 
 		// Protected routes - apply Clerk auth middleware
 		r.Group(func(r chi.Router) {

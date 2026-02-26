@@ -11,6 +11,7 @@ import (
 	"github.com/nextconvert/backend/internal/modules/subscription"
 	"github.com/stripe/stripe-go/v81"
 	portalsession "github.com/stripe/stripe-go/v81/billingportal/session"
+	"github.com/stripe/stripe-go/v81/price"
 	"github.com/stripe/stripe-go/v81/checkout/session"
 	"github.com/stripe/stripe-go/v81/customer"
 	stripesub "github.com/stripe/stripe-go/v81/subscription"
@@ -53,6 +54,70 @@ type CreateCheckoutRequest struct {
 // CreateCheckoutResponse returns the Stripe Checkout URL
 type CreateCheckoutResponse struct {
 	URL string `json:"url"`
+}
+
+// PricesResponse returns prices per tier (amounts in cents)
+type PricesResponse struct {
+	Basic    *TierPrices `json:"basic,omitempty"`
+	Standard *TierPrices `json:"standard,omitempty"`
+	Pro      *TierPrices `json:"pro,omitempty"`
+}
+
+// TierPrices holds monthly and yearly amounts in cents
+type TierPrices struct {
+	Monthly int64 `json:"monthly"`
+	Yearly  int64 `json:"yearly"`
+}
+
+// GetPrices fetches prices from Stripe and returns them (public, no auth)
+func (h *StripeHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
+	if h.secretKey == "" {
+		http.Error(w, "Stripe not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	stripe.Key = h.secretKey
+
+	resp := PricesResponse{}
+	tiers := []string{"basic", "standard", "pro"}
+
+	for _, tier := range tiers {
+		monthlyID := h.priceIDs[tier]
+		yearlyID := h.yearlyPriceIDs[tier]
+		if monthlyID == "" && yearlyID == "" {
+			continue
+		}
+
+		tp := &TierPrices{}
+		if monthlyID != "" {
+			p, err := price.Get(monthlyID, nil)
+			if err != nil {
+				h.logger.Warn("Failed to fetch monthly price", zap.String("tier", tier), zap.Error(err))
+				continue
+			}
+			tp.Monthly = p.UnitAmount
+		}
+		if yearlyID != "" {
+			p, err := price.Get(yearlyID, nil)
+			if err != nil {
+				h.logger.Warn("Failed to fetch yearly price", zap.String("tier", tier), zap.Error(err))
+				continue
+			}
+			tp.Yearly = p.UnitAmount
+		}
+
+		switch tier {
+		case "basic":
+			resp.Basic = tp
+		case "standard":
+			resp.Standard = tp
+		case "pro":
+			resp.Pro = tp
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // CreateCheckoutSession creates a Stripe Checkout session and returns the URL

@@ -11,26 +11,21 @@ type TierLimits struct {
 // Tier limits from plan
 var tierLimits = map[string]TierLimits{
 	"free": {
-		ConversionMinutes: 50,
-		MaxFileSizeBytes:  500 * 1024 * 1024, // 500MB
+		ConversionMinutes: 30,
+		MaxFileSizeBytes:  500 * 1024 * 1024, // 500 MB
 		Priority:          "default",
 		UseGPUEncoding:    false,
 	},
 	"basic": {
-		ConversionMinutes: 1500,
-		MaxFileSizeBytes:  int64(1.5 * 1024 * 1024 * 1024), // 1.5 GB
+		ConversionMinutes: 2000,
+		MaxFileSizeBytes:  4 * 1024 * 1024 * 1024, // 4 GB
 		Priority:          "high",
 		UseGPUEncoding:    false,
 	},
-	"standard": {
-		ConversionMinutes: 2000,
-		MaxFileSizeBytes:  2 * 1024 * 1024 * 1024, // 2 GB
-		Priority:          "critical",
-		UseGPUEncoding:    false,
-	},
 	"pro": {
-		ConversionMinutes: 4000,
-		MaxFileSizeBytes:  5 * 1024 * 1024 * 1024, // 5 GB
+		// Marketed as "unlimited (fair-use 10,000/mo)"
+		ConversionMinutes: 10000,
+		MaxFileSizeBytes:  10 * 1024 * 1024 * 1024, // 10 GB
 		Priority:          "critical",
 		UseGPUEncoding:    true,
 	},

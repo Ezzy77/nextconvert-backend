@@ -45,10 +45,8 @@ type Config struct {
 	StripeSecretKey              string
 	StripeWebhookSecret          string
 	StripeBasicPriceID           string
-	StripeStandardPriceID        string
 	StripeProPriceID             string
 	StripeBasicYearlyPriceID     string
-	StripeStandardYearlyPriceID  string
 	StripeProYearlyPriceID       string
 	StripeSuccessURL             string
 	StripeCancelURL              string
@@ -89,10 +87,8 @@ func Load() (*Config, error) {
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
 		StripeBasicPriceID:          getEnv("STRIPE_BASIC_PRICE_ID", ""),
-		StripeStandardPriceID:       getEnv("STRIPE_STANDARD_PRICE_ID", ""),
 		StripeProPriceID:            getEnv("STRIPE_PRO_PRICE_ID", ""),
 		StripeBasicYearlyPriceID:    getEnv("STRIPE_BASIC_YEARLY_PRICE_ID", ""),
-		StripeStandardYearlyPriceID: getEnv("STRIPE_STANDARD_YEARLY_PRICE_ID", ""),
 		StripeProYearlyPriceID:      getEnv("STRIPE_PRO_YEARLY_PRICE_ID", ""),
 		StripeSuccessURL:    getEnv("STRIPE_SUCCESS_URL", "http://localhost:5173/pricing?success=true"),
 		StripeCancelURL:     getEnv("STRIPE_CANCEL_URL", "http://localhost:5173/pricing"),

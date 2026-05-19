@@ -16,7 +16,7 @@ func TestGetTierLimits(t *testing.T) {
 			name: "free tier",
 			tier: "free",
 			expected: TierLimits{
-				ConversionMinutes: 50,
+				ConversionMinutes: 30,
 				MaxFileSizeBytes:  500 * 1024 * 1024,
 				Priority:          "default",
 				UseGPUEncoding:    false,
@@ -26,19 +26,9 @@ func TestGetTierLimits(t *testing.T) {
 			name: "basic tier",
 			tier: "basic",
 			expected: TierLimits{
-				ConversionMinutes: 1500,
-				MaxFileSizeBytes:  int64(1.5 * 1024 * 1024 * 1024),
-				Priority:          "high",
-				UseGPUEncoding:    false,
-			},
-		},
-		{
-			name: "standard tier",
-			tier: "standard",
-			expected: TierLimits{
 				ConversionMinutes: 2000,
-				MaxFileSizeBytes:  2 * 1024 * 1024 * 1024,
-				Priority:          "critical",
+				MaxFileSizeBytes:  4 * 1024 * 1024 * 1024,
+				Priority:          "high",
 				UseGPUEncoding:    false,
 			},
 		},
@@ -46,8 +36,8 @@ func TestGetTierLimits(t *testing.T) {
 			name: "pro tier",
 			tier: "pro",
 			expected: TierLimits{
-				ConversionMinutes: 4000,
-				MaxFileSizeBytes:  5 * 1024 * 1024 * 1024,
+				ConversionMinutes: 10000,
+				MaxFileSizeBytes:  10 * 1024 * 1024 * 1024,
 				Priority:          "critical",
 				UseGPUEncoding:    true,
 			},
@@ -56,7 +46,7 @@ func TestGetTierLimits(t *testing.T) {
 			name: "unknown tier defaults to free",
 			tier: "unknown_tier",
 			expected: TierLimits{
-				ConversionMinutes: 50,
+				ConversionMinutes: 30,
 				MaxFileSizeBytes:  500 * 1024 * 1024,
 				Priority:          "default",
 				UseGPUEncoding:    false,
@@ -66,7 +56,7 @@ func TestGetTierLimits(t *testing.T) {
 			name: "empty tier defaults to free",
 			tier: "",
 			expected: TierLimits{
-				ConversionMinutes: 50,
+				ConversionMinutes: 30,
 				MaxFileSizeBytes:  500 * 1024 * 1024,
 				Priority:          "default",
 				UseGPUEncoding:    false,
@@ -145,7 +135,6 @@ func TestTierPriorities(t *testing.T) {
 	t.Run("verify tier priorities are correct", func(t *testing.T) {
 		assert.Equal(t, "default", GetTierLimits("free").Priority)
 		assert.Equal(t, "high", GetTierLimits("basic").Priority)
-		assert.Equal(t, "critical", GetTierLimits("standard").Priority)
 		assert.Equal(t, "critical", GetTierLimits("pro").Priority)
 	})
 }
@@ -154,7 +143,6 @@ func TestGPUEncoding(t *testing.T) {
 	t.Run("only pro tier has GPU encoding enabled", func(t *testing.T) {
 		assert.False(t, GetTierLimits("free").UseGPUEncoding)
 		assert.False(t, GetTierLimits("basic").UseGPUEncoding)
-		assert.False(t, GetTierLimits("standard").UseGPUEncoding)
 		assert.True(t, GetTierLimits("pro").UseGPUEncoding)
 	})
 }
@@ -163,12 +151,10 @@ func TestFileSizeLimits(t *testing.T) {
 	t.Run("verify file size limits are in ascending order", func(t *testing.T) {
 		free := GetTierLimits("free").MaxFileSizeBytes
 		basic := GetTierLimits("basic").MaxFileSizeBytes
-		standard := GetTierLimits("standard").MaxFileSizeBytes
 		pro := GetTierLimits("pro").MaxFileSizeBytes
 
 		assert.True(t, free < basic, "free tier should have smaller file size limit than basic")
-		assert.True(t, basic < standard, "basic tier should have smaller file size limit than standard")
-		assert.True(t, standard < pro, "standard tier should have smaller file size limit than pro")
+		assert.True(t, basic < pro, "basic tier should have smaller file size limit than pro")
 	})
 }
 
@@ -176,11 +162,9 @@ func TestConversionMinutesLimits(t *testing.T) {
 	t.Run("verify conversion minutes are in ascending order", func(t *testing.T) {
 		free := GetTierLimits("free").ConversionMinutes
 		basic := GetTierLimits("basic").ConversionMinutes
-		standard := GetTierLimits("standard").ConversionMinutes
 		pro := GetTierLimits("pro").ConversionMinutes
 
 		assert.True(t, free < basic, "free tier should have fewer conversion minutes than basic")
-		assert.True(t, basic < standard, "basic tier should have fewer conversion minutes than standard")
-		assert.True(t, standard < pro, "standard tier should have fewer conversion minutes than pro")
+		assert.True(t, basic < pro, "basic tier should have fewer conversion minutes than pro")
 	})
 }

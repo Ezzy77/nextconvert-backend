@@ -47,7 +47,7 @@ func NewStripeHandler(subService *subscription.Service, secretKey, webhookSecret
 
 // CreateCheckoutRequest is the request body for checkout
 type CreateCheckoutRequest struct {
-	Tier     string `json:"tier"`     // basic, standard, pro
+	Tier     string `json:"tier"`     // basic, pro
 	Interval string `json:"interval"` // monthly, yearly (default: monthly)
 }
 
@@ -58,9 +58,8 @@ type CreateCheckoutResponse struct {
 
 // PricesResponse returns prices per tier (amounts in cents)
 type PricesResponse struct {
-	Basic    *TierPrices `json:"basic,omitempty"`
-	Standard *TierPrices `json:"standard,omitempty"`
-	Pro      *TierPrices `json:"pro,omitempty"`
+	Basic *TierPrices `json:"basic,omitempty"`
+	Pro   *TierPrices `json:"pro,omitempty"`
 }
 
 // TierPrices holds monthly and yearly amounts in cents
@@ -79,7 +78,7 @@ func (h *StripeHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
 	stripe.Key = h.secretKey
 
 	resp := PricesResponse{}
-	tiers := []string{"basic", "standard", "pro"}
+	tiers := []string{"basic", "pro"}
 
 	for _, tier := range tiers {
 		monthlyID := h.priceIDs[tier]
@@ -109,8 +108,6 @@ func (h *StripeHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
 		switch tier {
 		case "basic":
 			resp.Basic = tp
-		case "standard":
-			resp.Standard = tp
 		case "pro":
 			resp.Pro = tp
 		}

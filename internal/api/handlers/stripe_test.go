@@ -128,10 +128,3 @@ func TestStripeConfiguration(t *testing.T) {
 	})
 }
 
-func TestStripeTrialPeriod(t *testing.T) {
-	t.Run("documents 60-day trial period", func(t *testing.T) {
-		// This is a documentation test to ensure trial period is known
-		trialPeriodDays := 60
-		assert.Equal(t, 60, trialPeriodDays, "trial period should be 60 days")
-	})
-}

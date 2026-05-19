@@ -43,7 +43,7 @@ services:
   server:
     build:
       context: .
-      target: server
+      dockerfile: Dockerfile.server
     platform: linux/amd64
     container_name: NextConvert-server
     env_file:
@@ -80,7 +80,7 @@ services:
   worker:
     build:
       context: .
-      target: worker
+      dockerfile: Dockerfile.worker
     platform: linux/amd64
     container_name: NextConvert-worker
     env_file:

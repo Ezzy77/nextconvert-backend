@@ -1,0 +1,25 @@
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/worker ./cmd/worker
+
+# Runtime stage
+FROM alpine:3.19
+
+# Worker needs fonts for FFmpeg text overlays
+RUN apk add --no-cache ca-certificates tzdata ffmpeg ttf-dejavu fontconfig
+
+WORKDIR /app
+COPY --from=builder /bin/worker /app/worker
+RUN mkdir -p /tmp
+
+CMD ["/app/worker"]

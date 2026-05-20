@@ -113,12 +113,26 @@ func (h *JobHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(jobsList)
 }
 
+// loadOwnedJob fetches the job and verifies the caller owns it.
+// Returns 404 on either missing job or ownership mismatch so existence is not leaked.
+func (h *JobHandler) loadOwnedJob(r *http.Request, jobID string) (*jobs.Job, bool) {
+	job, err := h.module.GetJob(r.Context(), jobID)
+	if err != nil {
+		return nil, false
+	}
+	user := middleware.GetUser(r.Context())
+	if user == nil || job.UserID == "" || job.UserID != user.ID {
+		return nil, false
+	}
+	return job, true
+}
+
 // GetJob returns a specific job
 func (h *JobHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	job, err := h.module.GetJob(r.Context(), jobID)
-	if err != nil {
+	job, ok := h.loadOwnedJob(r, jobID)
+	if !ok {
 		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
@@ -130,6 +144,11 @@ func (h *JobHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 // CancelJob cancels a job (keeps it in database)
 func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
+
+	if _, ok := h.loadOwnedJob(r, jobID); !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
 
 	if err := h.module.CancelJob(r.Context(), jobID); err != nil {
 		h.logger.Error("Failed to cancel job", zap.Error(err), zap.String("job_id", jobID))
@@ -145,6 +164,11 @@ func (h *JobHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 func (h *JobHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
+	if _, ok := h.loadOwnedJob(r, jobID); !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+
 	if err := h.module.DeleteJob(r.Context(), jobID); err != nil {
 		h.logger.Error("Failed to delete job", zap.Error(err), zap.String("job_id", jobID))
 		http.Error(w, "failed to delete job", http.StatusInternalServerError)
@@ -158,6 +182,11 @@ func (h *JobHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 // RetryJob retries a failed job
 func (h *JobHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
+
+	if _, ok := h.loadOwnedJob(r, jobID); !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
 
 	newJob, err := h.module.RetryJob(r.Context(), jobID)
 	if err != nil {
@@ -175,6 +204,11 @@ func (h *JobHandler) RetryJob(w http.ResponseWriter, r *http.Request) {
 // GetJobLogs returns job execution logs
 func (h *JobHandler) GetJobLogs(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
+
+	if _, ok := h.loadOwnedJob(r, jobID); !ok {
+		http.Error(w, "logs not found", http.StatusNotFound)
+		return
+	}
 
 	logs, err := h.module.GetJobLogs(r.Context(), jobID)
 	if err != nil {

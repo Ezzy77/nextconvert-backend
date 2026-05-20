@@ -63,7 +63,13 @@ func (h *FileHandler) GetFile(w http.ResponseWriter, r *http.Request) {
 	// Query file from database
 	file, err := h.getFileFromDB(r.Context(), fileID)
 	if err != nil {
-		h.logger.Error("Failed to get file", zap.Error(err), zap.String("file_id", fileID))
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Ownership check — 404 (not 403) so existence is not leaked
+	user := middleware.GetUser(r.Context())
+	if user == nil || file.UserID == nil || *file.UserID != user.ID {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -83,7 +89,13 @@ func (h *FileHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	// Get file metadata from database
 	file, err := h.getFileFromDB(r.Context(), fileID)
 	if err != nil {
-		h.logger.Error("Failed to get file for download", zap.Error(err), zap.String("file_id", fileID))
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// Ownership check — 404 (not 403) so existence is not leaked
+	user := middleware.GetUser(r.Context())
+	if user == nil || file.UserID == nil || *file.UserID != user.ID {
 		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
@@ -222,11 +234,10 @@ func (h *FileHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
 		zone = "upload"
 	}
 
-	// Match files by user_id. Also include legacy NULL user_id files for anonymous users.
 	rows, err := h.db.Pool.Query(r.Context(), `
 		SELECT id, original_name, storage_path, mime_type, size_bytes, zone, media_type, created_at
 		FROM files
-		WHERE (user_id = $1 OR (user_id IS NULL AND $1 LIKE 'anon:%')) AND zone = $2
+		WHERE user_id = $1 AND zone = $2
 		ORDER BY created_at DESC
 		LIMIT 200
 	`, userID, zone)
@@ -284,16 +295,10 @@ func (h *FileHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check ownership
+	// Check ownership — 404 (not 403) so existence is not leaked
 	user := middleware.GetUser(r.Context())
-	userID := user.ID
-	if file.UserID != nil && *file.UserID != userID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	// Legacy NULL user_id files: only anonymous users can delete them
-	if file.UserID == nil && !user.IsAnonymous() {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if user == nil || file.UserID == nil || *file.UserID != user.ID {
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 

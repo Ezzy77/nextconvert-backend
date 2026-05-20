@@ -286,10 +286,10 @@ func (m *Module) GetJob(ctx context.Context, jobID string) (*Job, error) {
 // ListJobs returns jobs for a user
 func (m *Module) ListJobs(ctx context.Context, userID, status, jobType string) ([]*Job, error) {
 	query := `
-		SELECT id, user_id, status, priority, input_file_id, output_file_id, output_format, output_file_name, 
+		SELECT id, user_id, status, priority, input_file_id, output_file_id, output_format, output_file_name,
 		       operations, progress, error, created_at, started_at, completed_at
 		FROM jobs
-		WHERE (user_id = $1 OR (user_id IS NULL AND $1 LIKE 'anon:%'))
+		WHERE user_id = $1
 		  AND ($2 = '' OR status = $2::job_status)
 		ORDER BY created_at DESC
 		LIMIT 50

@@ -110,11 +110,28 @@ func (m *ClerkAuthMiddleware) getOrCreateAnonID(w http.ResponseWriter, r *http.R
 	return fmt.Sprintf("%s%s", AnonIDPrefix, anonUUID)
 }
 
+// ClerkSessionCookieName is the cookie Clerk sets on the FE domain containing the session JWT.
+// The Next.js proxy forwards it to the backend so browser-initiated requests
+// (e.g. <video src>) can authenticate without an Authorization header.
+const ClerkSessionCookieName = "__session"
+
 // Handler returns the HTTP middleware handler for Clerk authentication
 func (m *ClerkAuthMiddleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
+		sessionToken := ""
+
+		if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
+				return
+			}
+			sessionToken = parts[1]
+		} else if cookie, err := r.Cookie(ClerkSessionCookieName); err == nil && cookie.Value != "" {
+			sessionToken = cookie.Value
+		}
+
+		if sessionToken == "" {
 			// Generate per-device anonymous identity via cookie
 			anonID := m.getOrCreateAnonID(w, r)
 			ctx := context.WithValue(r.Context(), UserContextKey, &User{
@@ -124,15 +141,6 @@ func (m *ClerkAuthMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-
-		// Extract Bearer token
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
-			return
-		}
-
-		sessionToken := parts[1]
 
 		// Verify the session token with Clerk
 		claims, err := jwt.Verify(r.Context(), &jwt.VerifyParams{

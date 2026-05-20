@@ -107,6 +107,7 @@ func (s *Server) Router() *chi.Mux {
 	jobHandler := handlers.NewJobHandler(s.jobsModule, s.logger)
 	presetsHandler := handlers.NewPresetsHandler(s.db, s.logger)
 	wsHandler := handlers.NewWebSocketHandler(s.wsHub, s.logger)
+	authHandler := handlers.NewAuthHandler(s.db, s.logger, isSecure)
 
 	priceIDs := map[string]string{
 		"basic": s.config.StripeBasicPriceID,
@@ -195,6 +196,9 @@ func (s *Server) Router() *chi.Mux {
 				r.Post("/checkout", subscriptionHandler.CreateCheckout)
 				r.Post("/portal", subscriptionHandler.CreatePortal)
 			})
+
+			// Auth — transfer anon-cookie ownership to the signed-in Clerk user
+			r.With(clerkAuth.RequireAuth).Post("/auth/claim-anon", authHandler.ClaimAnon)
 		})
 	})
 
